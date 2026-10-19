@@ -72,6 +72,13 @@
     <option value="#00d0ff">Cyan</option>
   </select>
 
+  <label for="power">Performance</label>
+  <select id="power">
+    <option value="saver" selected>Power saver (default): 8 checks/s, idle mode, 640x480</option>
+    <option value="balanced">Balanced: 15 checks/s, idle mode, 960x540</option>
+    <option value="max">Max (Version 10): nonstop checks, 960x540</option>
+  </select>
+
   <div class="row">
     <input type="checkbox" id="mirror" checked>
     <label for="mirror">Mirror image</label>
@@ -80,7 +87,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 11</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 12</div>
 </div>
 
 <script>/*
@@ -5134,6 +5141,24 @@ return a / b;`,aie=`
 
   mirrorChk.addEventListener("change", function () { video.classList.toggle("mirror", mirrorChk.checked); });
 
+  // Performance presets.
+  //   rate: detection checks per second while faces are around (0 = nonstop)
+  //   idle: after IDLE_AFTER ms with no face, slow to IDLE_RATE checks/s until one appears
+  //   skipDraw: stop redrawing the overlay while no boxes are on screen
+  var PRESETS = {
+    saver:    { rate: 8,  idle: true,  w: 640, h: 480, skipDraw: true },
+    balanced: { rate: 15, idle: true,  w: 960, h: 540, skipDraw: true },
+    max:      { rate: 0,  idle: false, w: 960, h: 540, skipDraw: false }
+  };
+  var IDLE_RATE = 5, IDLE_AFTER = 2000;
+  var powerSel = $("power");
+  function preset() { return PRESETS[powerSel.value] || PRESETS.saver; }
+  powerSel.addEventListener("change", function () {
+    avgMs = 0; checkTimes = [];
+    // Camera resolution differs between presets, so reopen the camera if it is running.
+    if (running) startCamera().catch(function (e) { statusEl.textContent = "Camera error: " + (e.message || e); });
+  });
+
   function loadModel() {
     statusEl.textContent = "Loading model...";
     return faceapi.tf.setBackend("webgl").catch(function () { return faceapi.tf.setBackend("cpu"); })
@@ -5162,7 +5187,7 @@ return a / b;`,aie=`
   }
   function isFront(label) { return /front|user|facetime/i.test(label || ""); }
   function startCamera() {
-    var size = { width: { ideal: 960 }, height: { ideal: 540 } };
+    var size = { width: { ideal: preset().w }, height: { ideal: preset().h } };
     return openStream(Object.assign({ facingMode: { exact: "user" } }, size))
       .catch(function () { return openStream(Object.assign({ facingMode: "user" }, size)); })
       .then(function (s) {
@@ -5250,7 +5275,7 @@ return a / b;`,aie=`
     tracks = tracks.filter(function (t) { return now - t.seen < 1500; });
   }
 
-  // Sample the video behind the logo twice a second; black logo on bright areas, white on dark.
+  // Sample the video behind the logo once a second; black logo on bright areas, white on dark.
   var probe = document.createElement("canvas"); probe.width = 16; probe.height = 8;
   var pctx = probe.getContext("2d", { willReadFrequently: true });
   var logoDark = false;
@@ -5276,18 +5301,23 @@ return a / b;`,aie=`
         } catch (e) {}
       }
     }
-    setTimeout(updateLogoTone, 500);
+    setTimeout(updateLogoTone, 1000);
   }
   updateLogoTone();
 
-  // Rolling average of detection time, shown in the settings panel.
-  var perfEl = $("perf"), avgMs = 0, perfShownAt = 0;
+  // Rolling average of detection time plus actual checks per second, shown in the settings panel.
+  var perfEl = $("perf"), avgMs = 0, perfShownAt = 0, checkTimes = [], lastFaceAt = 0;
+  function isIdle(now) { return preset().idle && now - lastFaceAt > IDLE_AFTER; }
   function recordSpeed(ms) {
-    avgMs = avgMs ? avgMs * 0.9 + ms * 0.1 : ms;
     var now = performance.now();
+    avgMs = avgMs ? avgMs * 0.9 + ms * 0.1 : ms;
+    checkTimes.push(now);
+    while (checkTimes.length && now - checkTimes[0] > 2000) checkTimes.shift();
     if (now - perfShownAt > 500) {
       perfShownAt = now;
-      perfEl.textContent = "Detection speed: " + Math.round(avgMs) + " ms per check (~" + (1000 / avgMs).toFixed(avgMs > 200 ? 1 : 0) + " per second)";
+      var rate = checkTimes.length / 2;
+      perfEl.textContent = "Detection: " + Math.round(avgMs) + " ms per check, " +
+        rate.toFixed(rate < 10 ? 1 : 0) + " checks/s" + (isIdle(now) ? " (idle, no faces)" : "");
     }
   }
 
@@ -5295,16 +5325,31 @@ return a / b;`,aie=`
     if (video.readyState >= 2 && video.videoWidth) {
       var t0 = performance.now();
       faceapi.detectAllFaces(video, detectorOpts).then(function (res) {
+        if (res.length) lastFaceAt = performance.now();
         updateTracks(res.map(function (r) { return r.box; }));
         recordSpeed(performance.now() - t0);
-      }).catch(function () {}).then(function () { setTimeout(detectLoop, 0); });
+      }).catch(function () {}).then(function () {
+        var now = performance.now(), p = preset(), interval = 0;
+        if (isIdle(now)) interval = 1000 / IDLE_RATE;   // nobody around: check 5 times a second
+        else if (p.rate) interval = 1000 / p.rate;      // faces around: preset rate
+        // A face found while idle sets lastFaceAt, so the very next check runs at full rate.
+        setTimeout(detectLoop, Math.max(0, interval - (now - t0)));
+      });
     } else {
       setTimeout(detectLoop, 100);
     }
   }
 
-  var lastDraw = 0;
+  var lastDraw = 0, canvasClear = false;
   function drawLoop() {
+    var nowD = performance.now();
+    var anyVisible = tracks.some(function (t) { return nowD - t.seen <= 250; });
+    if (!anyVisible && preset().skipDraw && canvasClear) {
+      lastDraw = nowD;
+      requestAnimationFrame(drawLoop);
+      return;
+    }
+    canvasClear = !anyVisible;
     var dpr = window.devicePixelRatio || 1;
     var cw = canvas.clientWidth, ch = canvas.clientHeight;
     var pw = Math.round(cw * dpr), ph = Math.round(ch * dpr);
