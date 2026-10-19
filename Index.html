@@ -20,7 +20,7 @@
   video.mirror { transform:scaleX(-1); }
   canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
   #logo {
-    position:absolute; top:calc(16px + env(safe-area-inset-top)); left:calc(16px + env(safe-area-inset-left));
+    position:absolute; bottom:calc(16px + env(safe-area-inset-bottom)); left:calc(16px + env(safe-area-inset-left));
     width:clamp(120px, 24vw, 280px); height:auto; pointer-events:none;
     /* Turn any logo solid white, then 50% transparent. Change opacity to taste (1 = solid). */
     filter:brightness(0) invert(1);
@@ -61,7 +61,12 @@
   <h1>Face Tag</h1>
   <p>Runs entirely on this device. Double-tap the screen to show or hide this panel.</p>
 
-  <label for="tag">Tag text</label>
+  <div class="row" style="margin-top:4px">
+    <input type="checkbox" id="randomTags" checked>
+    <label for="randomTags">Random tags (new tag per new face)</label>
+  </div>
+
+  <label for="tag">Custom tag (used when random tags is off)</label>
   <input type="text" id="tag" value="SUS METER" maxlength="40">
 
   <label for="color">Box color</label>
@@ -87,7 +92,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 12</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 14</div>
 </div>
 
 <script>/*
@@ -5132,7 +5137,7 @@ return a / b;`,aie=`
 
   var $ = function (id) { return document.getElementById(id); };
   var video = $("v"), canvas = $("c"), ctx = canvas.getContext("2d");
-  var panel = $("panel"), tagIn = $("tag"), colorSel = $("color"), mirrorChk = $("mirror");
+  var panel = $("panel"), tagIn = $("tag"), randomChk = $("randomTags"), colorSel = $("color"), mirrorChk = $("mirror");
   var statusEl = $("status"), startBtn = $("start"), logoEl = $("logo"), camInfo = $("caminfo");
 
   var stream = null, modelReady = false, running = false;
@@ -5233,6 +5238,36 @@ return a / b;`,aie=`
     if (t - lastTap < 350) { panel.hidden = !panel.hidden; lastTap = 0; } else lastTap = t;
   });
 
+  // Tag list, generated from tags.md. m = confidence mode, g = similarity groups.
+  // Tags sharing a group are never shown back to back or on two faces at once.
+  var TAGS = [{"t": "SUS METER", "m": "erratic", "g": ["sus"]}, {"t": "IRISH GOODBYE", "m": "fall", "g": ["leaving"]}, {"t": "VIBE CHECK", "m": "erratic", "g": ["vibes"]}, {"t": "VIBES: FAIL", "m": "climb", "g": ["vibes"]}, {"t": "VIBES: PASS", "m": "fall", "g": ["vibes"]}, {"t": "KNOWN DANCER", "m": "climb", "g": ["party-act"]}, {"t": "WANTED: KARAOKE", "m": "climb", "g": ["party-act", "wanted"]}, {"t": "CANDY THIEF", "m": "climb", "g": ["candy"]}, {"t": "GHOST", "m": "fall", "g": ["spirit"]}, {"t": "NO HAUNT PERMIT", "m": "climb", "g": ["spirit", "permit"]}, {"t": "POSSESSED", "m": "erratic", "g": ["spirit"]}, {"t": "3-STATE CURSE", "m": "climb", "g": ["curse"]}, {"t": "UNLICENSED WITCH", "m": "climb", "g": ["permit", "curse"]}, {"t": "COSTUME: ???", "m": "erratic", "g": ["costume"]}, {"t": "TRICK OR TRACK", "m": "glitch", "g": ["costume"]}, {"t": "PLATE: BOO-666", "m": "erratic", "g": ["plate"]}, {"t": "THREAT: SNACK", "m": "climb", "g": ["threat", "candy"]}, {"t": "THREAT: MID", "m": "climb", "g": ["threat"]}, {"t": "THREAT: SPOOKY", "m": "climb", "g": ["threat", "spirit"]}, {"t": "BEHAVIOR: SUS", "m": "erratic", "g": ["sus"]}, {"t": "PRE-CRIME: YES", "m": "climb", "g": ["pre-guilt"]}, {"t": "ENHANCE ENHANCE", "m": "glitch", "g": ["enhance"]}, {"t": "CASE CODE: VIBES", "m": "climb", "g": ["justification", "vibes"]}, {"t": "\"INVESTIGATION\"", "m": "fall", "g": ["justification"]}, {"t": "HOA NOTIFIED", "m": "climb", "g": ["sharing"]}, {"t": "HOME DEPOT'D", "m": "climb", "g": ["sharing"]}, {"t": "OFFICER'S EX", "m": "climb", "g": ["misuse"]}, {"t": "EXCESS PRIVACY", "m": "climb", "g": ["privacy"]}, {"t": "TOO FREE", "m": "climb", "g": ["privacy"]}, {"t": "HIDING SOMETHING", "m": "climb", "g": ["privacy", "hiding"]}, {"t": "GUILTY OF VIBES", "m": "climb", "g": ["vibes", "guilt"]}, {"t": "CHARGE: TBD", "m": "erratic", "g": ["record"]}, {"t": "MOTIVE: SNACKS", "m": "climb", "g": ["record", "candy"]}, {"t": "WARRANT: N/A", "m": "climb", "g": ["record", "justification"]}, {"t": "PREMIUM SUSPECT", "m": "climb", "g": ["suspect", "commodity"]}, {"t": "BASIC SUSPECT", "m": "erratic", "g": ["suspect", "commodity"]}, {"t": "MONETIZABLE", "m": "climb", "g": ["commodity"]}, {"t": "DATA POINT", "m": "climb", "g": ["commodity"]}, {"t": "STOOD TOO STILL", "m": "climb", "g": ["observed"]}, {"t": "EYE CONTACT", "m": "climb", "g": ["observed"]}, {"t": "SEEN IN AREA", "m": "erratic", "g": ["location"]}, {"t": "WALKING WHILE SUS", "m": "erratic", "g": ["while-sus", "sus"]}, {"t": "SMILING WHILE SUS", "m": "glitch", "g": ["while-sus", "sus"]}, {"t": "DRIVING WHILE SUS", "m": "glitch", "g": ["while-sus", "sus", "plate"]}, {"t": "WRONG ZIP CODE", "m": "erratic", "g": ["location"]}, {"t": "FITS PROFILE", "m": "glitch", "g": ["match"]}, {"t": "FITS DESCRIPTION", "m": "erratic", "g": ["match"]}, {"t": "PRE-GUILTY", "m": "climb", "g": ["pre-guilt", "guilt"]}, {"t": "FUTURE PERP", "m": "climb", "g": ["pre-guilt"]}, {"t": "SUSPECT-ADJACENT", "m": "erratic", "g": ["suspect"]}, {"t": "LAW-ABIDING?", "m": "fall", "g": ["innocence"]}, {"t": "FUNDED THIS CAM", "m": "climb", "g": ["taxpayer"]}, {"t": "FALSE MATCH", "m": "fall", "g": ["match"]}, {"t": "INNOCENT?", "m": "fall", "g": ["innocence", "guilt"]}, {"t": "NOT A SUSPECT", "m": "fall", "g": ["innocence", "suspect"]}, {"t": "NOTHING TO HIDE", "m": "fall", "g": ["innocence", "hiding"]}, {"t": "EVIDENCE: NONE", "m": "fall", "g": ["record"]}];
+  var bag = [], recent = [];
+  function shuffle(a) {
+    for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var x = a[i]; a[i] = a[j]; a[j] = x; }
+    return a;
+  }
+  function clashes(tag, others) {
+    return others.some(function (o) { return o === tag || o.g.some(function (g) { return tag.g.indexOf(g) !== -1; }); });
+  }
+  // Shuffle-bag: every tag appears once before any repeats, in a fresh random order each round.
+  // The next pick is the first tag in the bag that is not similar to the last 3 shown or any tag on screen.
+  function pickTag() {
+    var avoid = recent.concat(tracks.filter(function (t) { return t.tagObj; }).map(function (t) { return t.tagObj; }));
+    if (!bag.length) bag = shuffle(TAGS.slice());
+    var idx = -1;
+    for (var i = 0; i < bag.length; i++) { if (!clashes(bag[i], avoid)) { idx = i; break; } }
+    if (idx === -1) {
+      // Everything left in this round clashes: start a new round, still honoring the rules if possible.
+      var fresh = shuffle(TAGS.slice());
+      for (var k = 0; k < fresh.length; k++) { if (!clashes(fresh[k], avoid)) { idx = k; break; } }
+      bag = bag.concat(fresh.filter(function (t) { return bag.indexOf(t) === -1; }));
+      if (idx !== -1) idx = bag.indexOf(fresh[idx]); else idx = 0;
+    }
+    var tag = bag.splice(idx, 1)[0];
+    recent.push(tag); if (recent.length > 3) recent.shift();
+    return tag;
+  }
+
   // Pair detections with existing boxes, closest pairs first, so fast movers keep their box
   // (and their confidence number) instead of spawning a new one and leaving a ghost behind.
   function updateTracks(boxes) {
@@ -5269,7 +5304,8 @@ return a / b;`,aie=`
     boxes.forEach(function (b, bi) {
       if (boxUsed[bi]) return;
       tracks.push({ x: b.x, y: b.y, w: b.width, h: b.height, tx: b.x, ty: b.y, tw: b.width, th: b.height,
-                    vx: 0, vy: 0, seen: now, born: now, phase: Math.random() * 100 });
+                    vx: 0, vy: 0, seen: now, born: now, phase: Math.random() * 100,
+                    tagObj: randomChk.checked ? pickTag() : null });
     });
     // Keep a box's history briefly after a missed frame so its percentage does not reset on a blink.
     tracks = tracks.filter(function (t) { return now - t.seen < 1500; });
@@ -5340,6 +5376,38 @@ return a / b;`,aie=`
     }
   }
 
+  // Confidence modes (see tags.md):
+  //   climb   ~30% rising toward 100%
+  //   fall    ~100% dropping toward 0-10%
+  //   erratic random jumps every 0.4-0.8 s, mixing small steps and big swings
+  //   glitch  climbs to the high 90s, holds, crashes to single digits every 8-12 s, re-climbs
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function clampPct(v) { return Math.round(Math.max(0, Math.min(100, v))); }
+  function confidence(t, mode, now) {
+    var age = (now - t.born) / 1000;
+    var wobble = 4 * Math.sin(age * 0.9 + t.phase) + 2 * Math.sin(age * 2.3 + t.phase * 1.7);
+    if (mode === "fall") {
+      return clampPct(5 + 93 * Math.exp(-age / 4.4) + wobble * 0.6);
+    }
+    if (mode === "erratic") {
+      if (t.eVal === undefined || now >= t.eNext) {
+        if (t.eVal === undefined || Math.random() < 0.45) t.eVal = rand(3, 99);      // big swing
+        else t.eVal = Math.max(1, Math.min(99, t.eVal + rand(-15, 15)));           // small step
+        t.eNext = now + rand(400, 800);
+      }
+      return clampPct(t.eVal);
+    }
+    if (mode === "glitch") {
+      if (t.gStart === undefined) { t.gStart = t.born; t.gFrom = 30; t.gCrash = t.born + rand(8000, 12000); }
+      if (now >= t.gCrash) { t.gFrom = rand(2, 9); t.gStart = now; t.gCrash = now + rand(8000, 12000); }
+      var g = (now - t.gStart) / 1000;
+      var top = 97 + 2 * Math.sin(age * 1.3 + t.phase);
+      return clampPct(t.gFrom + (top - t.gFrom) * (1 - Math.exp(-g / 1.4)));
+    }
+    // climb
+    return clampPct(Math.max(30, 30 + 68 * (1 - Math.exp(-age / 4.4)) + wobble));
+  }
+
   var lastDraw = 0, canvasClear = false;
   function drawLoop() {
     var nowD = performance.now();
@@ -5360,7 +5428,7 @@ return a / b;`,aie=`
     var vw = video.videoWidth, vh = video.videoHeight;
     if (vw && vh) {
       var s = Math.max(cw / vw, ch / vh), ox = (cw - vw * s) / 2, oy = (ch - vh * s) / 2;
-      var color = colorSel.value, tag = tagIn.value.toUpperCase();
+      var color = colorSel.value, customTag = tagIn.value.toUpperCase();
       var now = performance.now();
       var dt = Math.min(100, now - (lastDraw || now)); lastDraw = now;
       var k = 1 - Math.exp(-dt / 25); // short glide; prediction below does most of the work
@@ -5378,12 +5446,12 @@ return a / b;`,aie=`
         ctx.lineWidth = 3;
         ctx.strokeRect(x, y, w, h);
 
-        // Confidence: climbs from ~30 to ~90 in about 9 s on screen, then hovers near the top with a slow wobble.
-        var age = (now - t.born) / 1000;
-        var base = 30 + 68 * (1 - Math.exp(-age / 4.4));
-        var wobble = 4 * Math.sin(age * 0.9 + t.phase) + 2 * Math.sin(age * 2.3 + t.phase * 1.7);
-        var pct = Math.round(Math.max(30, Math.min(100, base + wobble)));
-        if (t.shown === undefined || now - (t.shownAt || 0) > 250) { t.shown = pct; t.shownAt = now; }
+        var tag = t.tagObj ? t.tagObj.t : customTag;
+        var mode = t.tagObj ? t.tagObj.m : "climb";
+        var pct = confidence(t, mode, now);
+        var hold = mode === "erratic" ? 0 : 250; // erratic shows every jump; others refresh 4x a second
+        if (t.shown === undefined || now - (t.shownAt || 0) > hold) { t.shown = pct; t.shownAt = now; }
+
         var fs = Math.max(14, Math.min(28, w * 0.13));
         ctx.font = "bold " + fs + "px Menlo, 'Courier New', monospace";
         ctx.textBaseline = "middle";
