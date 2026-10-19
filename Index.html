@@ -20,7 +20,10 @@
   video.mirror { transform:scaleX(-1); }
   canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
   #logo {
-    position:absolute; bottom:calc(16px + env(safe-area-inset-bottom)); left:calc(16px + env(safe-area-inset-left));
+    /* Equal visible gap (24px) from the left edge and from the bottom edge to the text baseline.
+       The logo file has empty space below the baseline (about 23% of its height), so the
+       bottom offset subtracts that to keep the two gaps visually equal. */
+    position:absolute; left:calc(24px + env(safe-area-inset-left)); bottom:calc(24px - clamp(5.5px, 1.1vw, 12.8px));
     width:clamp(120px, 24vw, 280px); height:auto; pointer-events:none;
     /* Turn any logo solid white, then 50% transparent. Change opacity to taste (1 = solid). */
     filter:brightness(0) invert(1);
@@ -29,6 +32,24 @@
   }
   #logo.dark { filter:brightness(0); }
   #logo[hidden] { display:none; }
+
+  /* On-screen text overlays: plain text on a dark translucent chip so it reads over any background. */
+  .hud { position:absolute; font-family:Menlo, "Courier New", monospace; font-weight:bold; font-size:22px; color:#fff;
+         white-space:nowrap; background:rgba(0,0,0,.6); padding:5px 10px; border-radius:4px; pointer-events:none; }
+  .hud[hidden], #alert[hidden] { display:none; }
+  #rec  { top:calc(16px + env(safe-area-inset-top)); left:calc(16px + env(safe-area-inset-left)); }
+  #rec .dot { color:#e0161b; animation:recblink 2s steps(1) infinite; }
+  @keyframes recblink { 50% { visibility:hidden; } }
+  #clock { top:calc(16px + env(safe-area-inset-top)); right:calc(16px + env(safe-area-inset-right)); }
+  #track { top:calc(62px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); font-size:17px; }
+  #suspects { bottom:16px; right:calc(16px + env(safe-area-inset-right)); }
+  #alert { position:absolute; bottom:96px; left:50%; transform:translateX(-50%); max-width:calc(100vw - 32px);
+           background:#e0161b; color:#fff; font-family:Menlo, "Courier New", monospace; font-weight:bold; font-size:30px;
+           padding:12px 24px; border-radius:4px; letter-spacing:.03em; white-space:nowrap; pointer-events:none;
+           box-shadow:0 4px 18px rgba(0,0,0,.5); }
+  #alert small { display:block; font-size:14px; opacity:.85; letter-spacing:.12em; margin-bottom:4px; }
+  #alert.enter { animation:alertblink .6s steps(1) 1; }
+  @keyframes alertblink { 0%,50% { visibility:visible; } 25%,75% { visibility:hidden; } }
   #panel {
     position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
     width:min(400px, calc(100vw - 32px)); box-sizing:border-box;
@@ -55,6 +76,11 @@
   <video id="v" class="mirror" playsinline muted autoplay></video>
   <canvas id="c"></canvas>
   <img id="logo" src="logo.svg" alt="" hidden onerror="this.dataset.failed=1">
+  <div class="hud" id="rec" hidden><span class="dot">&#9679;</span> REC&nbsp;&nbsp;CONDOR-07</div>
+  <div class="hud" id="clock" hidden></div>
+  <div class="hud" id="track" hidden></div>
+  <div class="hud" id="suspects" hidden>SUSPECTS: 0000</div>
+  <div id="alert" hidden><small>SYSTEM ALERT</small><span id="alertText"></span></div>
 </div>
 
 <div id="panel">
@@ -85,6 +111,11 @@
   </select>
 
   <div class="row">
+    <input type="checkbox" id="showTrack" checked>
+    <label for="showTrack">Show tracking line</label>
+  </div>
+
+  <div class="row">
     <input type="checkbox" id="mirror" checked>
     <label for="mirror">Mirror image</label>
   </div>
@@ -92,7 +123,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 14</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 16</div>
 </div>
 
 <script>/*
@@ -5225,6 +5256,7 @@ return a / b;`,aie=`
         statusEl.textContent = "";
         panel.hidden = true;
         showLogo();
+        showOverlays();
         try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {}
         if (!running) { running = true; detectLoop(); requestAnimationFrame(drawLoop); }
       })
@@ -5305,7 +5337,11 @@ return a / b;`,aie=`
       if (boxUsed[bi]) return;
       tracks.push({ x: b.x, y: b.y, w: b.width, h: b.height, tx: b.x, ty: b.y, tw: b.width, th: b.height,
                     vx: 0, vy: 0, seen: now, born: now, phase: Math.random() * 100,
-                    tagObj: randomChk.checked ? pickTag() : null });
+                    tagObj: randomChk.checked ? pickTag() : null,
+                    // Alert roll, once per face: 60% chance; fires after 5-9 s on screen.
+                    alertWins: Math.random() < 0.6, alertAt: now + 5000 + Math.random() * 4000, alerted: false });
+      suspectCount++;
+      suspectsEl.textContent = "SUSPECTS: " + String(suspectCount).padStart(4, "0");
     });
     // Keep a box's history briefly after a missed frame so its percentage does not reset on a blink.
     tracks = tracks.filter(function (t) { return now - t.seen < 1500; });
@@ -5408,6 +5444,70 @@ return a / b;`,aie=`
     return clampPct(Math.max(30, 30 + 68 * (1 - Math.exp(-age / 4.4)) + wobble));
   }
 
+  // ---- Text overlays: REC, clock, tracking line, SUSPECTS counter, system alerts ----
+  var READING_LABEL = { climb: "MATCH", glitch: "MATCH", fall: "CERTAINTY", erratic: "ACCURACY" };
+  var recEl = $("rec"), clockEl = $("clock"), trackEl = $("track"), suspectsEl = $("suspects");
+  var alertEl = $("alert"), alertTextEl = $("alertText"), showTrackChk = $("showTrack");
+  var suspectCount = 0;
+
+  // Approved alert texts (tags.md). Shuffle-bag so all appear before any repeats.
+  var ALERTS = ["MATCH SHARED W/ HOA", "HOME DEPOT NOTIFIED", "LANDLORD NOTIFIED", "CREDIT SCORE REDUCED", "REASON FIELD: \"IDK\"", "UNITS DISPATCHED", "STOLEN CANDY VERIFIED", "HANDED OFF TO CAM 08", "LIVESTREAM: PUBLIC", "ARCHIVED", "TRICK-OR-TREAT ROUTE SAVED", "COSTUME RUN THRU DATABASE", "AFTER-PARTY LOCATION SHARED", "DANCE MOVES ARCHIVED", "CANDY INTAKE REPORTED", "VIBE POLICE NOTIFIED"];
+  var alertBag = [], lastAlertText = null;
+  function nextAlert() {
+    if (!alertBag.length) {
+      alertBag = shuffle(ALERTS.slice());
+      if (alertBag[0] === lastAlertText && alertBag.length > 1) alertBag.push(alertBag.shift());
+    }
+    lastAlertText = alertBag.shift();
+    return lastAlertText;
+  }
+  var ALERT_SHOW_MS = 5000, ALERT_GAP_MS = 20000, ALERT_LINGER_MS = 1500;
+  var alertTrack = null, alertUntil = 0, lastAlertAt = -1e9;
+
+  function showOverlays() {
+    [recEl, clockEl, suspectsEl].forEach(function (el) { el.hidden = false; });
+  }
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  function tickClock() {
+    var d = new Date();
+    clockEl.textContent = pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + "-" + d.getFullYear() + " " +
+      pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  // Runs 4 times a second: cheap DOM updates only.
+  var lastTrackText = "";
+  setInterval(function () {
+    if (!running) return;
+    var now = performance.now();
+    var visible = tracks.filter(function (t) { return now - t.seen <= 250; });
+
+    // Tracking line: only while someone is on screen. Zoom creeps from 1.0x toward 4.0x with time on screen.
+    if (visible.length && showTrackChk.checked) {
+      var oldest = visible.reduce(function (a, t) { return t.born < a.born ? t : a; });
+      var zoom = 1 + 3 * (1 - Math.exp(-(now - oldest.born) / 6000));
+      var txt = "TRACKING\u00a0\u00a0\u2022\u00a0\u00a0ZOOM " + zoom.toFixed(1) + "\u00d7";
+      if (txt !== lastTrackText) { trackEl.textContent = txt; lastTrackText = txt; }
+      trackEl.hidden = false;
+    } else trackEl.hidden = true;
+
+    // Hide the current alert after 5 s, or 1.5 s after its face leaves, whichever comes first.
+    if (!alertEl.hidden && (now >= alertUntil || (alertTrack && now - alertTrack.seen > ALERT_LINGER_MS + 250))) {
+      alertEl.hidden = true; alertTrack = null;
+    }
+    // Fire a new alert for a face that won its roll, has been on screen long enough, and respects the gap.
+    if (alertEl.hidden && now - lastAlertAt >= ALERT_GAP_MS) {
+      var due = visible.filter(function (t) { return t.alertWins && !t.alerted && now >= t.alertAt; })[0];
+      if (due) {
+        due.alerted = true; alertTrack = due; lastAlertAt = now; alertUntil = now + ALERT_SHOW_MS;
+        alertTextEl.textContent = nextAlert();
+        alertEl.classList.remove("enter"); void alertEl.offsetWidth; alertEl.classList.add("enter");
+        alertEl.hidden = false;
+      }
+    }
+  }, 250);
+
   var lastDraw = 0, canvasClear = false;
   function drawLoop() {
     var nowD = performance.now();
@@ -5470,7 +5570,7 @@ return a / b;`,aie=`
         }
 
         // Confidence tag: below the box, right-aligned (inside the box if no room at the bottom).
-        var conf = "CONFIDENCE: " + t.shown + "%";
+        var conf = (READING_LABEL[mode] || "MATCH") + ": " + t.shown + "%";
         var cbw = ctx.measureText(conf).width + padX * 2;
         var cy = y + h;
         if (cy + bh > ch) cy = y + h - bh;
