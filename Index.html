@@ -72,13 +72,6 @@
     <option value="#00d0ff">Cyan</option>
   </select>
 
-  <label for="range">Detection range</label>
-  <select id="range">
-    <option value="320" selected>Near (default, lightest)</option>
-    <option value="416">Medium</option>
-    <option value="608">Far (heaviest)</option>
-  </select>
-
   <div class="row">
     <input type="checkbox" id="mirror" checked>
     <label for="mirror">Mirror image</label>
@@ -87,7 +80,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 9</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 10</div>
 </div>
 
 <script>/*
@@ -5137,11 +5130,7 @@ return a / b;`,aie=`
 
   var stream = null, modelReady = false, running = false;
   var tracks = [];
-  var rangeSel = $("range");
-  var detectorOpts;
-  function setRange() { detectorOpts = new faceapi.TinyFaceDetectorOptions({ inputSize: +rangeSel.value, scoreThreshold: 0.55 }); }
-  setRange();
-  rangeSel.addEventListener("change", setRange);
+  var detectorOpts = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
 
   mirrorChk.addEventListener("change", function () { video.classList.toggle("mirror", mirrorChk.checked); });
 
@@ -5150,6 +5139,15 @@ return a / b;`,aie=`
     return faceapi.tf.setBackend("webgl").catch(function () { return faceapi.tf.setBackend("cpu"); })
       .then(function () { return faceapi.tf.ready(); })
       .then(function () { return faceapi.nets.tinyFaceDetector.loadFromUri("./model"); })
+      .then(function () {
+        // The first detection compiles the GPU shaders, which can stall the screen for seconds.
+        // Run it here on a blank frame, while the panel still says "Preparing...".
+        statusEl.textContent = "Preparing detector (first time takes a few seconds)...";
+        var warm = document.createElement("canvas"); warm.width = 320; warm.height = 320;
+        return new Promise(function (r) { setTimeout(r, 50); })
+          .then(function () { return faceapi.detectAllFaces(warm, detectorOpts); })
+          .then(function () { return faceapi.detectAllFaces(warm, detectorOpts); });
+      })
       .then(function () { modelReady = true; });
   }
 
@@ -5164,7 +5162,7 @@ return a / b;`,aie=`
   }
   function isFront(label) { return /front|user|facetime/i.test(label || ""); }
   function startCamera() {
-    var size = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    var size = { width: { ideal: 960 }, height: { ideal: 540 } };
     return openStream(Object.assign({ facingMode: { exact: "user" } }, size))
       .catch(function () { return openStream(Object.assign({ facingMode: "user" }, size)); })
       .then(function (s) {
@@ -5210,32 +5208,43 @@ return a / b;`,aie=`
     if (t - lastTap < 350) { panel.hidden = !panel.hidden; lastTap = 0; } else lastTap = t;
   });
 
-  // Match each new detection to the nearest existing box so boxes glide instead of jumping.
+  // Pair detections with existing boxes, closest pairs first, so fast movers keep their box
+  // (and their confidence number) instead of spawning a new one and leaving a ghost behind.
   function updateTracks(boxes) {
-    var now = performance.now(), used = [];
-    boxes.forEach(function (b) {
-      var cx = b.x + b.width / 2, cy = b.y + b.height / 2, best = null, bestD = Infinity;
-      tracks.forEach(function (t) {
-        if (used.indexOf(t) !== -1) return;
+    var now = performance.now();
+    var pairs = [];
+    boxes.forEach(function (b, bi) {
+      var cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+      tracks.forEach(function (t, ti) {
         var d = Math.hypot(t.tx + t.tw / 2 - cx, t.ty + t.th / 2 - cy);
-        if (d < bestD) { bestD = d; best = t; }
+        if (d < Math.max(b.width, t.tw) * 2.5) pairs.push({ d: d, bi: bi, ti: ti });
       });
-      var t = (best && bestD < Math.max(b.width, best.tw)) ? best : null;
-      if (!t) {
-        t = { x: b.x, y: b.y, w: b.width, h: b.height, tx: b.x, ty: b.y, tw: b.width, th: b.height, born: now, phase: Math.random() * 100 };
-        tracks.push(t);
-      } else {
-        // Adaptive smoothing: small jitter is damped heavily, real movement passes through almost instantly.
-        var move = Math.hypot(cx - (t.tx + t.tw / 2), cy - (t.ty + t.th / 2)) / Math.max(b.width, 1);
-        var a = Math.min(1, 0.35 + move * 3);
-        var as = a * 0.6; // box size jitters more than position, so it is smoothed a bit more
-        var ncx = t.tx + t.tw / 2 + (cx - (t.tx + t.tw / 2)) * a;
-        var ncy = t.ty + t.th / 2 + (cy - (t.ty + t.th / 2)) * a;
-        t.tw += (b.width - t.tw) * as; t.th += (b.height - t.th) * as;
-        t.tx = ncx - t.tw / 2; t.ty = ncy - t.th / 2;
-      }
+    });
+    pairs.sort(function (p, q) { return p.d - q.d; });
+    var boxUsed = {}, trackUsed = {};
+    pairs.forEach(function (p) {
+      if (boxUsed[p.bi] || trackUsed[p.ti]) return;
+      boxUsed[p.bi] = trackUsed[p.ti] = true;
+      var t = tracks[p.ti], b = boxes[p.bi];
+      var cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+      var ocx = t.tx + t.tw / 2, ocy = t.ty + t.th / 2;
+      var dtS = Math.max(1, now - t.seen);
+      // Light smoothing only when nearly still; any real movement is followed at once.
+      var move = Math.hypot(cx - ocx, cy - ocy) / Math.max(b.width, 1);
+      var a = move < 0.04 ? 0.5 : 1;
+      var ncx = ocx + (cx - ocx) * a, ncy = ocy + (cy - ocy) * a;
+      // Velocity (pixels per ms), smoothed, used to predict position between detections.
+      var vx = (ncx - ocx) / dtS, vy = (ncy - ocy) / dtS;
+      t.vx = t.vx === undefined ? vx : t.vx * 0.5 + vx * 0.5;
+      t.vy = t.vy === undefined ? vy : t.vy * 0.5 + vy * 0.5;
+      t.tw += (b.width - t.tw) * 0.5; t.th += (b.height - t.th) * 0.5;
+      t.tx = ncx - t.tw / 2; t.ty = ncy - t.th / 2;
       t.seen = now;
-      used.push(t);
+    });
+    boxes.forEach(function (b, bi) {
+      if (boxUsed[bi]) return;
+      tracks.push({ x: b.x, y: b.y, w: b.width, h: b.height, tx: b.x, ty: b.y, tw: b.width, th: b.height,
+                    vx: 0, vy: 0, seen: now, born: now, phase: Math.random() * 100 });
     });
     // Keep a box's history briefly after a missed frame so its percentage does not reset on a blink.
     tracks = tracks.filter(function (t) { return now - t.seen < 1500; });
@@ -5271,9 +5280,8 @@ return a / b;`,aie=`
   }
   updateLogoTone();
 
-  // Rolling average of detection time, shown in the panel to compare range settings.
+  // Rolling average of detection time, shown in the settings panel.
   var perfEl = $("perf"), avgMs = 0, perfShownAt = 0;
-  rangeSel.addEventListener("change", function () { avgMs = 0; });
   function recordSpeed(ms) {
     avgMs = avgMs ? avgMs * 0.9 + ms * 0.1 : ms;
     var now = performance.now();
@@ -5310,10 +5318,13 @@ return a / b;`,aie=`
       var color = colorSel.value, tag = tagIn.value.toUpperCase();
       var now = performance.now();
       var dt = Math.min(100, now - (lastDraw || now)); lastDraw = now;
-      var k = 1 - Math.exp(-dt / 45); // ~45 ms glide between detections, independent of frame rate
+      var k = 1 - Math.exp(-dt / 25); // short glide; prediction below does most of the work
       tracks.forEach(function (t) {
-        if (now - t.seen > 400) return;
-        t.x += (t.tx - t.x) * k; t.y += (t.ty - t.y) * k;
+        if (now - t.seen > 250) return; // hide quickly when a face is lost, so no ghost box lingers
+        // Project the box forward along its recent motion to cover detection delay (capped at 120 ms).
+        var lead = Math.min(120, (now - t.seen) + avgMs * 0.5);
+        var px = t.tx + (t.vx || 0) * lead, py = t.ty + (t.vy || 0) * lead;
+        t.x += (px - t.x) * k; t.y += (py - t.y) * k;
         t.w += (t.tw - t.w) * k; t.h += (t.th - t.h) * k;
         var w = t.w * s, h = t.h * s, x = ox + t.x * s, y = oy + t.y * s;
         if (mirrorChk.checked) x = cw - x - w;
