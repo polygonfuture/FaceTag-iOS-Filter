@@ -80,7 +80,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 10</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 11</div>
 </div>
 
 <script>/*
@@ -5333,9 +5333,9 @@ return a / b;`,aie=`
         ctx.lineWidth = 3;
         ctx.strokeRect(x, y, w, h);
 
-        // Confidence: climbs from ~30 to ~90 in about 6 s on screen, then hovers near the top with a slow wobble.
+        // Confidence: climbs from ~30 to ~90 in about 9 s on screen, then hovers near the top with a slow wobble.
         var age = (now - t.born) / 1000;
-        var base = 30 + 68 * (1 - Math.exp(-age / 3));
+        var base = 30 + 68 * (1 - Math.exp(-age / 4.4));
         var wobble = 4 * Math.sin(age * 0.9 + t.phase) + 2 * Math.sin(age * 2.3 + t.phase * 1.7);
         var pct = Math.round(Math.max(30, Math.min(100, base + wobble)));
         if (t.shown === undefined || now - (t.shownAt || 0) > 250) { t.shown = pct; t.shownAt = now; }
