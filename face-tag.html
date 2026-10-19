@@ -16,9 +16,15 @@
     touch-action:manipulation;
   }
   #stage { position:fixed; inset:0; }
-  video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; filter:grayscale(1) contrast(1.15); }
   video.mirror { transform:scaleX(-1); }
   canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  #logo {
+    position:absolute; top:calc(16px + env(safe-area-inset-top)); left:calc(16px + env(safe-area-inset-left));
+    width:clamp(120px, 24vw, 280px); height:auto; pointer-events:none;
+    filter:drop-shadow(0 1px 3px rgba(0,0,0,.8));
+  }
+  #logo[hidden] { display:none; }
   #panel {
     position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
     width:min(400px, calc(100vw - 32px)); box-sizing:border-box;
@@ -44,14 +50,12 @@
 <div id="stage">
   <video id="v" playsinline muted autoplay></video>
   <canvas id="c"></canvas>
+  <img id="logo" src="logo.svg" alt="" hidden>
 </div>
 
 <div id="panel">
   <h1>Face Tag</h1>
   <p>Runs entirely on this device. Double-tap the screen to show or hide this panel.</p>
-
-  <label for="cam">Camera</label>
-  <select id="cam"><option value="">Default</option></select>
 
   <label for="tag">Tag text</label>
   <input type="text" id="tag" value="SUSPECT" maxlength="40">
@@ -5115,8 +5119,8 @@ return a / b;`,aie=`
 
   var $ = function (id) { return document.getElementById(id); };
   var video = $("v"), canvas = $("c"), ctx = canvas.getContext("2d");
-  var panel = $("panel"), camSel = $("cam"), tagIn = $("tag"), colorSel = $("color"), mirrorChk = $("mirror");
-  var statusEl = $("status"), startBtn = $("start");
+  var panel = $("panel"), tagIn = $("tag"), colorSel = $("color"), mirrorChk = $("mirror");
+  var statusEl = $("status"), startBtn = $("start"), logoEl = $("logo");
 
   var stream = null, modelReady = false, running = false;
   var tracks = [];
@@ -5132,44 +5136,34 @@ return a / b;`,aie=`
       .then(function () { modelReady = true; });
   }
 
-  function startCamera(deviceId) {
+  // Front-facing camera only.
+  function startCamera() {
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
-    var v = { width: { ideal: 1280 }, height: { ideal: 720 } };
-    if (deviceId) v.deviceId = { exact: deviceId }; else v.facingMode = "environment";
+    var v = { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } };
     return navigator.mediaDevices.getUserMedia({ audio: false, video: v }).then(function (s) {
       stream = s;
       video.srcObject = s;
+      tracks = [];
       return video.play();
-    }).then(function () {
-      var current = stream.getVideoTracks()[0].getSettings().deviceId;
-      return navigator.mediaDevices.enumerateDevices().then(function (list) {
-        camSel.innerHTML = "";
-        list.filter(function (d) { return d.kind === "videoinput"; }).forEach(function (d, i) {
-          var o = document.createElement("option");
-          o.value = d.deviceId;
-          o.textContent = d.label || ("Camera " + (i + 1));
-          if (d.deviceId === current) o.selected = true;
-          camSel.appendChild(o);
-        });
-        tracks = [];
-      });
     });
   }
 
-  camSel.addEventListener("change", function () {
-    startCamera(camSel.value).catch(function (e) { statusEl.textContent = "Camera error: " + (e.message || e); });
-  });
+  // Logo appears only once the feed is running; stays hidden if logo.svg is missing.
+  var logoOk = false;
+  logoEl.addEventListener("load", function () { logoOk = true; if (running) logoEl.hidden = false; });
+  logoEl.addEventListener("error", function () { logoOk = false; logoEl.hidden = true; });
 
   startBtn.addEventListener("click", function () {
     startBtn.disabled = true;
     (modelReady ? Promise.resolve() : loadModel())
       .then(function () {
         statusEl.textContent = "Starting camera...";
-        return startCamera(camSel.value || null).catch(function () { return startCamera(null); });
+        return startCamera();
       })
       .then(function () {
         statusEl.textContent = "";
         panel.hidden = true;
+        if (logoOk || logoEl.complete && logoEl.naturalWidth) logoEl.hidden = false;
         try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {}
         if (!running) { running = true; detectLoop(); requestAnimationFrame(drawLoop); }
       })
