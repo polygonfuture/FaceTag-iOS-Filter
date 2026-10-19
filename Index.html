@@ -52,7 +52,7 @@
 </head>
 <body>
 <div id="stage">
-  <video id="v" playsinline muted autoplay></video>
+  <video id="v" class="mirror" playsinline muted autoplay></video>
   <canvas id="c"></canvas>
   <img id="logo" src="logo.svg" alt="" hidden onerror="this.dataset.failed=1">
 </div>
@@ -62,24 +62,32 @@
   <p>Runs entirely on this device. Double-tap the screen to show or hide this panel.</p>
 
   <label for="tag">Tag text</label>
-  <input type="text" id="tag" value="SUSPECT" maxlength="40">
+  <input type="text" id="tag" value="SUS METER" maxlength="40">
 
   <label for="color">Box color</label>
   <select id="color">
-    <option value="#00ff40">Green</option>
+    <option value="#00ff40" selected>Green</option>
     <option value="#ff2020">Red</option>
     <option value="#ffd000">Yellow</option>
     <option value="#00d0ff">Cyan</option>
   </select>
 
+  <label for="range">Detection range</label>
+  <select id="range">
+    <option value="320" selected>Near (default, lightest)</option>
+    <option value="416">Medium</option>
+    <option value="608">Far (heaviest)</option>
+  </select>
+
   <div class="row">
-    <input type="checkbox" id="mirror">
+    <input type="checkbox" id="mirror" checked>
     <label for="mirror">Mirror image</label>
   </div>
 
   <button id="start">Start</button>
   <div id="status"></div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 6</div>
+  <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 9</div>
 </div>
 
 <script>/*
@@ -5129,7 +5137,11 @@ return a / b;`,aie=`
 
   var stream = null, modelReady = false, running = false;
   var tracks = [];
-  var detectorOpts = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+  var rangeSel = $("range");
+  var detectorOpts;
+  function setRange() { detectorOpts = new faceapi.TinyFaceDetectorOptions({ inputSize: +rangeSel.value, scoreThreshold: 0.55 }); }
+  setRange();
+  rangeSel.addEventListener("change", setRange);
 
   mirrorChk.addEventListener("change", function () { video.classList.toggle("mirror", mirrorChk.checked); });
 
@@ -5209,8 +5221,20 @@ return a / b;`,aie=`
         if (d < bestD) { bestD = d; best = t; }
       });
       var t = (best && bestD < Math.max(b.width, best.tw)) ? best : null;
-      if (!t) { t = { x: b.x, y: b.y, w: b.width, h: b.height, born: now, phase: Math.random() * 100 }; tracks.push(t); }
-      t.tx = b.x; t.ty = b.y; t.tw = b.width; t.th = b.height; t.seen = now;
+      if (!t) {
+        t = { x: b.x, y: b.y, w: b.width, h: b.height, tx: b.x, ty: b.y, tw: b.width, th: b.height, born: now, phase: Math.random() * 100 };
+        tracks.push(t);
+      } else {
+        // Adaptive smoothing: small jitter is damped heavily, real movement passes through almost instantly.
+        var move = Math.hypot(cx - (t.tx + t.tw / 2), cy - (t.ty + t.th / 2)) / Math.max(b.width, 1);
+        var a = Math.min(1, 0.35 + move * 3);
+        var as = a * 0.6; // box size jitters more than position, so it is smoothed a bit more
+        var ncx = t.tx + t.tw / 2 + (cx - (t.tx + t.tw / 2)) * a;
+        var ncy = t.ty + t.th / 2 + (cy - (t.ty + t.th / 2)) * a;
+        t.tw += (b.width - t.tw) * as; t.th += (b.height - t.th) * as;
+        t.tx = ncx - t.tw / 2; t.ty = ncy - t.th / 2;
+      }
+      t.seen = now;
       used.push(t);
     });
     // Keep a box's history briefly after a missed frame so its percentage does not reset on a blink.
@@ -5247,16 +5271,31 @@ return a / b;`,aie=`
   }
   updateLogoTone();
 
+  // Rolling average of detection time, shown in the panel to compare range settings.
+  var perfEl = $("perf"), avgMs = 0, perfShownAt = 0;
+  rangeSel.addEventListener("change", function () { avgMs = 0; });
+  function recordSpeed(ms) {
+    avgMs = avgMs ? avgMs * 0.9 + ms * 0.1 : ms;
+    var now = performance.now();
+    if (now - perfShownAt > 500) {
+      perfShownAt = now;
+      perfEl.textContent = "Detection speed: " + Math.round(avgMs) + " ms per check (~" + (1000 / avgMs).toFixed(avgMs > 200 ? 1 : 0) + " per second)";
+    }
+  }
+
   function detectLoop() {
     if (video.readyState >= 2 && video.videoWidth) {
+      var t0 = performance.now();
       faceapi.detectAllFaces(video, detectorOpts).then(function (res) {
         updateTracks(res.map(function (r) { return r.box; }));
+        recordSpeed(performance.now() - t0);
       }).catch(function () {}).then(function () { setTimeout(detectLoop, 0); });
     } else {
       setTimeout(detectLoop, 100);
     }
   }
 
+  var lastDraw = 0;
   function drawLoop() {
     var dpr = window.devicePixelRatio || 1;
     var cw = canvas.clientWidth, ch = canvas.clientHeight;
@@ -5270,9 +5309,10 @@ return a / b;`,aie=`
       var s = Math.max(cw / vw, ch / vh), ox = (cw - vw * s) / 2, oy = (ch - vh * s) / 2;
       var color = colorSel.value, tag = tagIn.value.toUpperCase();
       var now = performance.now();
+      var dt = Math.min(100, now - (lastDraw || now)); lastDraw = now;
+      var k = 1 - Math.exp(-dt / 45); // ~45 ms glide between detections, independent of frame rate
       tracks.forEach(function (t) {
         if (now - t.seen > 400) return;
-        var k = 0.4;
         t.x += (t.tx - t.x) * k; t.y += (t.ty - t.y) * k;
         t.w += (t.tw - t.w) * k; t.h += (t.th - t.h) * k;
         var w = t.w * s, h = t.h * s, x = ox + t.x * s, y = oy + t.y * s;
@@ -5282,9 +5322,9 @@ return a / b;`,aie=`
         ctx.lineWidth = 3;
         ctx.strokeRect(x, y, w, h);
 
-        // Match %: climbs from ~30 toward 100 over roughly 20 s on screen, with a slow wobble.
+        // Confidence: climbs from ~30 to ~90 in about 6 s on screen, then hovers near the top with a slow wobble.
         var age = (now - t.born) / 1000;
-        var base = 30 + 68 * (1 - Math.exp(-age / 8));
+        var base = 30 + 68 * (1 - Math.exp(-age / 3));
         var wobble = 4 * Math.sin(age * 0.9 + t.phase) + 2 * Math.sin(age * 2.3 + t.phase * 1.7);
         var pct = Math.round(Math.max(30, Math.min(100, base + wobble)));
         if (t.shown === undefined || now - (t.shownAt || 0) > 250) { t.shown = pct; t.shownAt = now; }
@@ -5298,10 +5338,11 @@ return a / b;`,aie=`
           var bw = ctx.measureText(tag).width + padX * 2;
           var ly = y - bh;
           if (ly < 0) ly = y + h;
+          var lx = Math.max(0, Math.min(x - 1.5, cw - bw));
           ctx.fillStyle = color;
-          ctx.fillRect(x - 1.5, ly, bw, bh);
+          ctx.fillRect(lx, ly, bw, bh);
           ctx.fillStyle = "#000";
-          ctx.fillText(tag, x - 1.5 + padX, ly + bh / 2 + 1);
+          ctx.fillText(tag, lx + padX, ly + bh / 2 + 1);
         }
 
         // Confidence tag: below the box, right-aligned (inside the box if no room at the bottom).
@@ -5309,7 +5350,7 @@ return a / b;`,aie=`
         var cbw = ctx.measureText(conf).width + padX * 2;
         var cy = y + h;
         if (cy + bh > ch) cy = y + h - bh;
-        var cx = x + w + 1.5 - cbw;
+        var cx = Math.max(0, Math.min(x + w + 1.5 - cbw, cw - cbw)); // keep fully on screen
         ctx.fillStyle = color;
         ctx.fillRect(cx, cy, cbw, bh);
         ctx.fillStyle = "#000";
