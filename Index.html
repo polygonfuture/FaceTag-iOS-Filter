@@ -92,16 +92,10 @@
     <label for="randomTags">Random tags (new tag per new face)</label>
   </div>
 
-  <label for="tag">Custom tag (used when random tags is off)</label>
-  <input type="text" id="tag" value="SUS METER" maxlength="40">
-
-  <label for="color">Box color</label>
-  <select id="color">
-    <option value="#00ff40" selected>Green</option>
-    <option value="#ff2020">Red</option>
-    <option value="#ffd000">Yellow</option>
-    <option value="#00d0ff">Cyan</option>
-  </select>
+  <div id="customTagRow" hidden>
+    <label for="tag">Custom tag</label>
+    <input type="text" id="tag" value="SUS METER" maxlength="40">
+  </div>
 
   <label for="power">Performance</label>
   <select id="power">
@@ -135,7 +129,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 17</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 18</div>
 </div>
 
 <script>/*
@@ -5180,7 +5174,16 @@ return a / b;`,aie=`
 
   var $ = function (id) { return document.getElementById(id); };
   var video = $("v"), canvas = $("c"), ctx = canvas.getContext("2d");
-  var panel = $("panel"), tagIn = $("tag"), randomChk = $("randomTags"), colorSel = $("color"), mirrorChk = $("mirror");
+  var panel = $("panel"), tagIn = $("tag"), randomChk = $("randomTags"), mirrorChk = $("mirror");
+  // Box colour used to be a setting; green is the only one shipped now.
+  var BOX_COLOR = "#00ff40";
+
+  // The custom tag field is only meaningful when random tags are off, so it stays out of the way
+  // until then.
+  var customTagRow = $("customTagRow");
+  function syncCustomTagRow() { customTagRow.hidden = randomChk.checked; }
+  randomChk.addEventListener("change", syncCustomTagRow);
+  syncCustomTagRow();
   var statusEl = $("status"), startBtn = $("start"), logoEl = $("logo"), camInfo = $("caminfo");
 
   var stream = null, modelReady = false, running = false;
@@ -5501,7 +5504,11 @@ return a / b;`,aie=`
     lastAlertText = alertBag.shift();
     return lastAlertText;
   }
-  var ALERT_SHOW_MS = 5000, ALERT_LINGER_MS = 1500;
+  // Whichever comes first ends the alert: SHOW_MS elapsed, or LINGER_MS after its face was last
+  // detected. Both matter -- a short LINGER_MS yanks the alert away when someone turns their head,
+  // long before SHOW_MS runs out. SHOW_MS stays below the 12 s preset gap so there is still a
+  // quiet beat between one alert and the next.
+  var ALERT_SHOW_MS = 8000, ALERT_LINGER_MS = 3000;
   var alertTrack = null, alertUntil = 0, lastAlertAt = -1e9;
 
   // ---- Alert sound effects ----
@@ -5732,7 +5739,7 @@ return a / b;`,aie=`
     var vw = video.videoWidth, vh = video.videoHeight;
     if (vw && vh) {
       var s = Math.max(cw / vw, ch / vh), ox = (cw - vw * s) / 2, oy = (ch - vh * s) / 2;
-      var color = colorSel.value, customTag = tagIn.value.toUpperCase();
+      var color = BOX_COLOR, customTag = tagIn.value.toUpperCase();
       var now = performance.now();
       var dt = Math.min(100, now - (lastDraw || now)); lastDraw = now;
       var k = 1 - Math.exp(-dt / 25); // short glide; prediction below does most of the work
