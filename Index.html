@@ -116,6 +116,11 @@
   </div>
 
   <div class="row">
+    <input type="checkbox" id="alertSound" checked>
+    <label for="alertSound">Play a sound with system alerts</label>
+  </div>
+
+  <div class="row">
     <input type="checkbox" id="mirror" checked>
     <label for="mirror">Mirror image</label>
   </div>
@@ -5247,6 +5252,9 @@ return a / b;`,aie=`
 
   startBtn.addEventListener("click", function () {
     startBtn.disabled = true;
+    // Has to happen synchronously in the gesture, before any await/then, or iOS keeps audio
+    // blocked. Skipped when the setting is off: turning it back on is its own gesture.
+    if (alertSoundChk.checked) unlockSfx();
     (modelReady ? Promise.resolve() : loadModel())
       .then(function () {
         statusEl.textContent = "Starting camera...";
@@ -5257,6 +5265,7 @@ return a / b;`,aie=`
         panel.hidden = true;
         showLogo();
         showOverlays();
+        resumeSfx();  // the camera coming up may have suspended the context on iOS
         try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {}
         if (!running) { running = true; detectLoop(); requestAnimationFrame(drawLoop); }
       })
@@ -5448,6 +5457,7 @@ return a / b;`,aie=`
   var READING_LABEL = { climb: "MATCH", glitch: "MATCH", fall: "CERTAINTY", erratic: "ACCURACY" };
   var recEl = $("rec"), clockEl = $("clock"), trackEl = $("track"), suspectsEl = $("suspects");
   var alertEl = $("alert"), alertTextEl = $("alertText"), showTrackChk = $("showTrack");
+  var alertSoundChk = $("alertSound");
   var suspectCount = 0;
 
   // Approved alert texts (tags.md). Shuffle-bag so all appear before any repeats.
@@ -5463,6 +5473,161 @@ return a / b;`,aie=`
   }
   var ALERT_SHOW_MS = 5000, ALERT_GAP_MS = 20000, ALERT_LINGER_MS = 1500;
   var alertTrack = null, alertUntil = 0, lastAlertAt = -1e9;
+
+  // ---- Alert sound effects ----
+  // Files sit in "sound effects/" next to this page, all normalized to the same perceived
+  // loudness so no single alert jumps out. Played through Web Audio rather than <audio>
+  // because iOS unlocks a whole AudioContext from one gesture, but each <audio> element
+  // separately. The folder name has a space in it, hence the %20.
+  var SFX_DIR = "sound%20effects/";
+  // A zero-length WAV. Starting this inside the Start gesture is what unlocks element playback
+  // on iOS; it makes no sound itself.
+  var SFX_SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YQAAAAA=";
+  var SFX = ["apple-pay-sound.mp3", "camera_zLdd1zp.mp3", "correct.mp3", "ding-sound-effect_1_CVUaI0C.mp3",
+    "directed-by-robert-b_voI2Z4T.mp3", "discord-notification.mp3", "discord-sounds.mp3",
+    "dun-dun-dun-sound-effect-brass_8nFBccR.mp3", "new-message-2002-2005.mp3", "romanceeeeeeeeeeeeee.mp3",
+    "smoke-detector-beep.mp3", "tada-meme.mp3", "windows-10-error-soundshorter.mp3", "windows-3-1-error.mp3",
+    "windows-7-notification-sound.mp3", "windows-98-error.mp3", "windows-xp-critical-error-full-version.mp3",
+    "windowsding_0V2fJxl.mp3", "yougotmail.mp3"];
+  var sfxCtx = null, sfxBuffers = {}, sfxBag = [], lastSfxName = null, sfxPlaying = null;
+  // Web Audio preloads every clip and plays with no latency, but it needs fetch(), which is
+  // CORS-blocked when this page is opened straight off the filesystem. In that case fall back to
+  // a single <audio> element we retarget per alert: slower to start, but it works from file://.
+  var sfxMode = (location.protocol === "file:") ? "element" : "webaudio";
+  var sfxEl = null;
+
+  // Called from the Start button, which is the user gesture iOS requires before any audio.
+  function unlockSfx() {
+    if (sfxMode === "element") {
+      if (sfxEl) return;
+      try {
+        sfxEl = new Audio();
+        sfxEl.preload = "auto";
+        sfxEl.src = SFX_SILENT;
+        var p = sfxEl.play();
+        if (p && p.catch) p.catch(function () {});
+      } catch (e) { sfxEl = null; }
+      return;
+    }
+    if (sfxCtx) { if (sfxCtx.state === "suspended") sfxCtx.resume(); return; }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { sfxCtx = new AC(); } catch (e) { return; }
+    // Starting a silent one-sample buffer inside the gesture is what actually lifts the block.
+    try {
+      var s = sfxCtx.createBufferSource();
+      s.buffer = sfxCtx.createBuffer(1, 1, 22050);
+      s.connect(sfxCtx.destination);
+      s.start(0);
+    } catch (e) {}
+    if (sfxCtx.state === "suspended") sfxCtx.resume();
+    loadSfx(0);
+  }
+
+  // One file at a time, so these never compete with the camera coming up. The first alert is
+  // 20 s away at the earliest, which is plenty of time for the whole set (~700 KB).
+  function loadSfx(i) {
+    if (!sfxCtx || i >= SFX.length) return;
+    var name = SFX[i];
+    fetch(SFX_DIR + encodeURIComponent(name))
+      .then(function (r) { return r.ok ? r.arrayBuffer() : Promise.reject(new Error("http " + r.status)); })
+      .then(function (raw) {
+        // Callback form: Safari only gained the promise-returning decodeAudioData late.
+        return new Promise(function (res, rej) { sfxCtx.decodeAudioData(raw, res, rej); });
+      })
+      .then(function (buf) { sfxBuffers[name] = buf; })
+      .catch(function () {})  // a missing or undecodable file just drops out of the rotation
+      .then(function () { loadSfx(i + 1); });
+  }
+
+  // Shuffle-bag over whatever has finished loading, same as tags and alert texts: every sound
+  // plays once before any repeats, and a round never opens with the sound that closed the last.
+  // iOS reconfigures the audio session when a camera stream starts, and suspends the context
+  // outright when the page goes to the background. Either one leaves it needing a nudge, which
+  // is allowed without a fresh gesture once the context has been unlocked one time.
+  function resumeSfx() {
+    if (sfxCtx && sfxCtx.state === "suspended") { try { sfxCtx.resume(); } catch (e) {} }
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) resumeSfx();
+  });
+
+  // In element mode nothing is decoded ahead of time, so every clip is always a candidate.
+  function sfxReady() {
+    return sfxMode === "element" ? SFX.slice() : SFX.filter(function (n) { return sfxBuffers[n]; });
+  }
+  function nextSfx() {
+    var ready = sfxReady();
+    if (!ready.length) return null;
+    if (sfxMode !== "element") sfxBag = sfxBag.filter(function (n) { return sfxBuffers[n]; });
+    if (!sfxBag.length) {
+      sfxBag = shuffle(ready.slice());
+      if (sfxBag[0] === lastSfxName && sfxBag.length > 1) sfxBag.push(sfxBag.shift());
+    }
+    lastSfxName = sfxBag.shift();
+    return lastSfxName;
+  }
+
+  function playAlertSound() {
+    if (!alertSoundChk.checked) return;
+    var name = nextSfx();
+    if (!name) return;
+
+    if (sfxMode === "element") {
+      if (!sfxEl) return;
+      try {
+        sfxEl.volume = 1;
+        sfxEl.src = SFX_DIR + encodeURIComponent(name);
+        var p = sfxEl.play();
+        if (p && p.catch) p.catch(function () {});
+      } catch (e) {}
+      return;
+    }
+
+    if (!sfxCtx) return;
+    var buf = sfxBuffers[name];
+    if (!buf) return;
+    if (sfxCtx.state === "suspended") sfxCtx.resume();
+    try {
+      var src = sfxCtx.createBufferSource(), gain = sfxCtx.createGain();
+      src.buffer = buf;
+      src.connect(gain);
+      gain.connect(sfxCtx.destination);
+      src.start(0);
+      sfxPlaying = { src: src, gain: gain };
+      src.onended = function () { if (sfxPlaying && sfxPlaying.src === src) sfxPlaying = null; };
+    } catch (e) {}
+  }
+
+  // A few clips run longer than the 5 s the alert is on screen, and an alert can also be cut
+  // short when its face leaves. Fade out over 80 ms rather than hard-stopping, which clicks.
+  function stopAlertSound() {
+    if (sfxMode === "element") {
+      if (!sfxEl || sfxEl.paused) return;
+      try { sfxEl.pause(); sfxEl.currentTime = 0; } catch (e) {}
+      return;
+    }
+    if (!sfxPlaying || !sfxCtx) return;
+    var p = sfxPlaying;
+    sfxPlaying = null;
+    try {
+      var t = sfxCtx.currentTime;
+      p.gain.gain.setValueAtTime(p.gain.gain.value, t);
+      p.gain.gain.linearRampToValueAtTime(0, t + 0.08);
+      p.src.stop(t + 0.09);
+    } catch (e) {
+      try { p.src.stop(); } catch (e2) {}
+    }
+  }
+
+  // Turning the setting off mid-session silences whatever is already playing. Turning it on is
+  // itself a tap, so it can do the unlock the same way the Start button does -- which is why
+  // Start can skip all of this when the setting is already off, and nothing is fetched, decoded
+  // or kept in memory for someone running without sound.
+  alertSoundChk.addEventListener("change", function () {
+    if (alertSoundChk.checked) unlockSfx();
+    else stopAlertSound();
+  });
 
   function showOverlays() {
     [recEl, clockEl, suspectsEl].forEach(function (el) { el.hidden = false; });
@@ -5495,6 +5660,7 @@ return a / b;`,aie=`
     // Hide the current alert after 5 s, or 1.5 s after its face leaves, whichever comes first.
     if (!alertEl.hidden && (now >= alertUntil || (alertTrack && now - alertTrack.seen > ALERT_LINGER_MS + 250))) {
       alertEl.hidden = true; alertTrack = null;
+      stopAlertSound();
     }
     // Fire a new alert for a face that won its roll, has been on screen long enough, and respects the gap.
     if (alertEl.hidden && now - lastAlertAt >= ALERT_GAP_MS) {
@@ -5504,6 +5670,7 @@ return a / b;`,aie=`
         alertTextEl.textContent = nextAlert();
         alertEl.classList.remove("enter"); void alertEl.offsetWidth; alertEl.classList.add("enter");
         alertEl.hidden = false;
+        playAlertSound();
       }
     }
   }, 250);
