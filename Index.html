@@ -115,6 +115,13 @@
     <label for="showTrack">Show tracking line</label>
   </div>
 
+  <label for="alertFreq">Alert frequency</label>
+  <select id="alertFreq">
+    <option value="subtle">Subtle: 75% of faces, after 3-6s, once each</option>
+    <option value="balanced" selected>Balanced (default): 90% of faces, after 2-4s, repeats</option>
+    <option value="frequent">Frequent: every face, after 1.5-3s, repeats often</option>
+  </select>
+
   <div class="row">
     <input type="checkbox" id="alertSound" checked>
     <label for="alertSound">Play a sound with system alerts</label>
@@ -128,7 +135,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 16</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 17</div>
 </div>
 
 <script>/*
@@ -5344,11 +5351,11 @@ return a / b;`,aie=`
     });
     boxes.forEach(function (b, bi) {
       if (boxUsed[bi]) return;
-      tracks.push({ x: b.x, y: b.y, w: b.width, h: b.height, tx: b.x, ty: b.y, tw: b.width, th: b.height,
-                    vx: 0, vy: 0, seen: now, born: now, phase: Math.random() * 100,
-                    tagObj: randomChk.checked ? pickTag() : null,
-                    // Alert roll, once per face: 60% chance; fires after 5-9 s on screen.
-                    alertWins: Math.random() < 0.6, alertAt: now + 5000 + Math.random() * 4000, alerted: false });
+      var nt = { x: b.x, y: b.y, w: b.width, h: b.height, tx: b.x, ty: b.y, tw: b.width, th: b.height,
+                 vx: 0, vy: 0, seen: now, born: now, phase: Math.random() * 100,
+                 tagObj: randomChk.checked ? pickTag() : null };
+      armAlert(nt, now);  // alert chance and countdown, per the Alert frequency setting
+      tracks.push(nt);
       suspectCount++;
       suspectsEl.textContent = "SUSPECTS: " + String(suspectCount).padStart(4, "0");
     });
@@ -5457,7 +5464,30 @@ return a / b;`,aie=`
   var READING_LABEL = { climb: "MATCH", glitch: "MATCH", fall: "CERTAINTY", erratic: "ACCURACY" };
   var recEl = $("rec"), clockEl = $("clock"), trackEl = $("track"), suspectsEl = $("suspects");
   var alertEl = $("alert"), alertTextEl = $("alertText"), showTrackChk = $("showTrack");
-  var alertSoundChk = $("alertSound");
+  var alertSoundChk = $("alertSound"), alertFreqSel = $("alertFreq");
+
+  // Alert pacing, switchable from the panel so the feel can be tuned on the device without a
+  // redeploy. The 12 s gap is the same in all three: what varies is how many people can alert
+  // at all, how long they must stay, and whether someone who lingers gets another one.
+  // rearmMin of 0 means one alert per face, ever.
+  var ALERT_PRESETS = {
+    subtle:   { win: 0.75, delayMin: 3000, delayMax: 6000, gap: 12000, rearmMin: 0, rearmMax: 0 },
+    balanced: { win: 0.90, delayMin: 2000, delayMax: 4000, gap: 12000, rearmMin: 15000, rearmMax: 25000 },
+    frequent: { win: 1.00, delayMin: 1500, delayMax: 3000, gap: 12000, rearmMin: 10000, rearmMax: 15000 }
+  };
+  function alertPreset() { return ALERT_PRESETS[alertFreqSel.value] || ALERT_PRESETS.balanced; }
+  // Roll one face's chance and countdown. Called when a face first appears, and again whenever
+  // the preset changes, so a new setting applies to whoever is already on screen.
+  function armAlert(t, now) {
+    var p = alertPreset();
+    t.alertWins = Math.random() < p.win;
+    t.alertAt = now + p.delayMin + Math.random() * (p.delayMax - p.delayMin);
+    t.alerted = false;
+  }
+  alertFreqSel.addEventListener("change", function () {
+    var now = performance.now();
+    tracks.forEach(function (t) { if (!t.alerted) armAlert(t, now); });
+  });
   var suspectCount = 0;
 
   // Approved alert texts (tags.md). Shuffle-bag so all appear before any repeats.
@@ -5471,7 +5501,7 @@ return a / b;`,aie=`
     lastAlertText = alertBag.shift();
     return lastAlertText;
   }
-  var ALERT_SHOW_MS = 5000, ALERT_GAP_MS = 20000, ALERT_LINGER_MS = 1500;
+  var ALERT_SHOW_MS = 5000, ALERT_LINGER_MS = 1500;
   var alertTrack = null, alertUntil = 0, lastAlertAt = -1e9;
 
   // ---- Alert sound effects ----
@@ -5663,10 +5693,17 @@ return a / b;`,aie=`
       stopAlertSound();
     }
     // Fire a new alert for a face that won its roll, has been on screen long enough, and respects the gap.
-    if (alertEl.hidden && now - lastAlertAt >= ALERT_GAP_MS) {
+    if (alertEl.hidden && now - lastAlertAt >= alertPreset().gap) {
       var due = visible.filter(function (t) { return t.alertWins && !t.alerted && now >= t.alertAt; })[0];
       if (due) {
         due.alerted = true; alertTrack = due; lastAlertAt = now; alertUntil = now + ALERT_SHOW_MS;
+        // On the repeating presets, someone who stays in frame gets another one later with a
+        // different text, instead of a single alert being all they ever see.
+        var rp = alertPreset();
+        if (rp.rearmMin) {
+          due.alerted = false;
+          due.alertAt = now + rp.rearmMin + Math.random() * (rp.rearmMax - rp.rearmMin);
+        }
         alertTextEl.textContent = nextAlert();
         alertEl.classList.remove("enter"); void alertEl.offsetWidth; alertEl.classList.add("enter");
         alertEl.hidden = false;
