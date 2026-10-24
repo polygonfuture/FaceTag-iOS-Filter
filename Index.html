@@ -64,6 +64,7 @@
     border:1px solid #555; background:#1c1c1c; color:#eee;
   }
   #panel .row { display:flex; align-items:center; gap:8px; margin-top:14px; }
+  #panel .row[hidden] { display:none; }  /* the flex rule above would otherwise beat [hidden] */
   #panel .row label { margin:0; color:#eee; font-size:16px; }
   #panel input[type=checkbox] { width:22px; height:22px; }
   #start { margin-top:18px; width:100%; padding:14px; font-size:18px; font-weight:600; border:0; border-radius:10px; background:#2a7; color:#fff; }
@@ -121,7 +122,8 @@
     <label for="alertSound">Play a sound with system alerts</label>
   </div>
 
-  <div class="row">
+  <!-- Mirroring stays on and stays wired up; the control is just hidden from the panel. -->
+  <div class="row" hidden>
     <input type="checkbox" id="mirror" checked>
     <label for="mirror">Mirror image</label>
   </div>
@@ -129,7 +131,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 18</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 19</div>
 </div>
 
 <script>/*
