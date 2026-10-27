@@ -70,6 +70,51 @@
   #start { margin-top:18px; width:100%; padding:14px; font-size:18px; font-weight:600; border:0; border-radius:10px; background:#2a7; color:#fff; }
   #start:disabled { opacity:.5; }
   #status { margin-top:10px; min-height:1.2em; font-size:14px; color:#f99; }
+
+  /* Clip recording. In manual mode the REC overlay is the (hidden) button; the suffix after the
+     callsign is the wearer's only feedback and is never drawn into the saved clip. */
+  #stage.manual #rec { pointer-events:auto; cursor:pointer; }
+  #rec.armed .dot { color:#ffb000; animation:none; }
+  #rec.live  .dot { color:#ff3b30; animation:none; }
+  #recExtra { color:#ffb000; }
+  #rec.live #recExtra { color:#ff6b61; }
+  #rec.saved #recExtra { color:#5f5; }
+  #rec.note  #recExtra { color:#aaa; font-weight:normal; }
+  #panel .sub { margin:4px 0 0; font-size:13px; color:#999; line-height:1.4; }
+  #clipsBtn {
+    display:flex; align-items:center; justify-content:space-between; width:100%; box-sizing:border-box;
+    margin-top:12px; padding:12px 14px; border:1px solid #555; border-radius:8px; background:#1c1c1c; color:#eee; font-size:16px; text-align:left;
+  }
+  #clipsBtn small { color:#bbb; font-size:14px; }
+  #panel .divider { margin-top:14px; padding-top:14px; border-top:1px solid #333; }
+
+  /* The Clips review screen: full screen, over everything, portrait-first. */
+  #clips { position:fixed; inset:0; z-index:20; background:#0f0f0f; color:#eee; display:flex; flex-direction:column;
+           font-family:-apple-system, system-ui, sans-serif; padding-top:env(safe-area-inset-top); }
+  #clips[hidden] { display:none; }
+  #clips .head { display:flex; align-items:center; justify-content:space-between; padding:14px 20px 12px; border-bottom:1px solid #2a2a2a; }
+  #clips h2 { margin:0; font-size:22px; font-weight:600; }
+  #clips .info { font-size:14px; color:#aaa; margin-top:2px; }
+  #clips .round { width:44px; height:44px; border-radius:22px; border:1px solid #444; background:#1c1c1c; color:#eee; font-size:22px; line-height:1; padding:0; }
+  #clips .body { flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:14px 20px 0; }
+  #clipPlayer { display:block; width:100%; aspect-ratio:3 / 4; max-height:48vh; border-radius:10px; background:#000; object-fit:contain; }
+  #clips .meta { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:10px 0 14px; }
+  #clips .meta .t { font-size:17px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #clips .meta .s { font-size:14px; color:#aaa; margin-top:2px; }
+  #clips .btns { display:flex; gap:8px; flex-shrink:0; }
+  #clips button.b { height:44px; padding:0 16px; border-radius:10px; border:1px solid #555; background:#1c1c1c; color:#eee; font-size:15px; }
+  #clips button.b.danger { border-color:#553; color:#f99; }
+  #clips button.b.primary { border:0; background:#2a7; color:#fff; font-weight:600; flex:1 1 auto; }
+  #clipList { display:flex; flex-direction:column; gap:6px; padding-bottom:16px; }
+  #clipList .row { display:flex; align-items:center; gap:12px; min-height:56px; padding:6px 12px 6px 6px; border-radius:8px; border:1px solid #444; background:#1c1c1c; color:#eee; font-size:15px; text-align:left; margin:0; }
+  #clipList .row.cur { border-color:#2a7; background:#163; color:#fff; }
+  #clipList .row .th { width:44px; height:58px; border-radius:4px; background:#000 center/cover no-repeat; flex-shrink:0; }
+  #clipList .row .tm { color:#aaa; font-family:Menlo, monospace; font-size:13px; margin-right:10px; }
+  #clipList .row.cur .tm, #clipList .row.cur .d { color:#bfe; }
+  #clipList .row .d { margin-left:auto; color:#aaa; font-size:13px; }
+  #clipList .empty { color:#888; font-size:15px; padding:24px 4px; text-align:center; }
+  #clips .foot { display:flex; flex-direction:column; gap:10px; padding:12px 20px calc(16px + env(safe-area-inset-bottom)); border-top:1px solid #2a2a2a; }
+  #clips .foot .note { font-size:13px; color:#999; line-height:1.4; }
 </style>
 </head>
 <body>
@@ -77,7 +122,7 @@
   <video id="v" class="mirror" playsinline muted autoplay></video>
   <canvas id="c"></canvas>
   <img id="logo" src="logo.svg" alt="" hidden onerror="this.dataset.failed=1">
-  <div class="hud" id="rec" hidden><span class="dot">&#9679;</span> REC&nbsp;&nbsp;CONDOR-07</div>
+  <div class="hud" id="rec" hidden><span class="dot">&#9679;</span> REC&nbsp;&nbsp;CONDOR-07<span id="recExtra"></span></div>
   <div class="hud" id="clock" hidden></div>
   <div class="hud" id="track" hidden></div>
   <div class="hud" id="suspects" hidden>SUSPECTS: 0000</div>
@@ -110,6 +155,15 @@
     <label for="showTrack">Show tracking line</label>
   </div>
 
+  <label for="recordClips" class="divider">Record clips</label>
+  <select id="recordClips">
+    <option value="off" selected>Off</option>
+    <option value="auto">Automatic: every alert, from detection to alert end</option>
+    <option value="manual">Manual: tap the REC overlay to clip the next alert</option>
+  </select>
+  <div class="sub">Uses the microphone. Clips stay on this iPad until you export them; nothing is uploaded.</div>
+  <button type="button" id="clipsBtn"><span>Clips</span><small id="clipsSummary">none yet</small></button>
+
   <label for="alertFreq">Alert frequency</label>
   <select id="alertFreq">
     <option value="subtle">Subtle: 75% of faces, after 3-6s, once each</option>
@@ -131,7 +185,32 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 19</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 20</div>
+</div>
+
+<div id="clips" hidden>
+  <div class="head">
+    <div><h2>Clips</h2><div class="info" id="clipsInfo"></div></div>
+    <button type="button" class="round" id="clipsClose" aria-label="Close clips">&#215;</button>
+  </div>
+  <div class="body">
+    <video id="clipPlayer" playsinline controls preload="metadata"></video>
+    <div class="meta">
+      <div style="min-width:0"><div class="t" id="clipTitle">No clip selected</div><div class="s" id="clipSub"></div></div>
+      <div class="btns">
+        <button type="button" class="b" id="clipShare">Share / Save</button>
+        <button type="button" class="b danger" id="clipDelete">Delete</button>
+      </div>
+    </div>
+    <div id="clipList"></div>
+  </div>
+  <div class="foot">
+    <div class="note">Share opens the iPad share sheet: AirDrop to a friend, or Save Video to put it in Photos. Both work with no wifi. Clips only leave this iPad when you send them.</div>
+    <div class="btns">
+      <button type="button" class="b danger" id="clipsDeleteAll">Delete all</button>
+      <button type="button" class="b primary" id="clipsShareAll">Share / Save all&#8230;</button>
+    </div>
+  </div>
 </div>
 
 <script>/*
@@ -5278,6 +5357,7 @@ return a / b;`,aie=`
         showLogo();
         showOverlays();
         resumeSfx();  // the camera coming up may have suspended the context on iOS
+        recOnCameraStarted();
         try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {}
         if (!running) { running = true; detectLoop(); requestAnimationFrame(drawLoop); }
       })
@@ -5632,6 +5712,7 @@ return a / b;`,aie=`
       src.buffer = buf;
       src.connect(gain);
       gain.connect(sfxCtx.destination);
+      if (recDest) gain.connect(recDest);  // so the sting ends up in the clip too
       src.start(0);
       sfxPlaying = { src: src, gain: gain };
       src.onended = function () { if (sfxPlaying && sfxPlaying.src === src) sfxPlaying = null; };
@@ -5700,6 +5781,7 @@ return a / b;`,aie=`
     if (!alertEl.hidden && (now >= alertUntil || (alertTrack && now - alertTrack.seen > ALERT_LINGER_MS + 250))) {
       alertEl.hidden = true; alertTrack = null;
       stopAlertSound();
+      recOnAlertEnded();
     }
     // Fire a new alert for a face that won its roll, has been on screen long enough, and respects the gap.
     if (alertEl.hidden && now - lastAlertAt >= alertPreset().gap) {
@@ -5717,15 +5799,488 @@ return a / b;`,aie=`
         alertEl.classList.remove("enter"); void alertEl.offsetWidth; alertEl.classList.add("enter");
         alertEl.hidden = false;
         playAlertSound();
+        recOnAlertFired();
       }
     }
+    recTick(now, visible.length);
   }, 250);
+
+  // ---- Clip recording ----
+  // Saves what is on screen, from the moment a face shows up until its system alert ends, as one
+  // video file per alert, kept on this device in IndexedDB. iOS has no screen-capture API, so the
+  // frame is rebuilt by hand: the camera (mirrored and desaturated like the <video>), the box
+  // canvas on top, then the logo, HUD text and alert banner redrawn from their DOM positions.
+  // Audio is the microphone mixed with the alert sounds. Nothing in here touches the network.
+  var stageEl = $("stage"), recModeSel = $("recordClips"), recExtra = $("recExtra");
+  var clipsEl = $("clips"), clipsBtn = $("clipsBtn"), clipsSummary = $("clipsSummary"), clipsInfo = $("clipsInfo");
+  var clipPlayer = $("clipPlayer"), clipTitle = $("clipTitle"), clipSub = $("clipSub"), clipList = $("clipList");
+  var REC_MODE_KEY = "facetag.recordClips";
+  // The one setting that persists: it is a per-device choice, and losing it between launches at
+  // a party would mean silently recording nothing.
+  try { var savedRecMode = localStorage.getItem(REC_MODE_KEY); if (savedRecMode && recModeSel.querySelector('option[value="' + savedRecMode + '"]')) recModeSel.value = savedRecMode; } catch (e) {}
+  function recMode() { return recModeSel.value; }   // "off" | "auto" | "manual"
+  recModeSel.addEventListener("change", function () {
+    try { localStorage.setItem(REC_MODE_KEY, recModeSel.value); } catch (e) {}
+    applyRecMode();
+  });
+  function applyRecMode() {
+    var mode = recMode();
+    stageEl.classList.toggle("manual", mode === "manual");
+    if (mode === "off") { if (recActive) recStop(false); setRecHud(); return; }
+    if (running) { ensureMic(); requestPersist(); }
+  }
+
+  // -- microphone, mixed with the alert sounds --
+  var micStream = null, micPromise = null, recDest = null, micNode = null;
+  function ensureMic() {
+    if (micStream) return Promise.resolve(micStream);
+    if (micPromise) return micPromise;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve(null);
+    micPromise = navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function (s) { micStream = s; return s; })
+      .catch(function (e) { micPromise = null; recNote("MIC OFF"); return null; });
+    return micPromise;
+  }
+  // One audio track for the recorder. With an AudioContext around, the mic goes through it so
+  // the alert sounds can be mixed in (playAlertSound also feeds recDest); without one, mic only.
+  function recAudioTrack() {
+    if (sfxCtx && micStream) {
+      try {
+        if (!recDest) recDest = sfxCtx.createMediaStreamDestination();
+        if (!micNode) { micNode = sfxCtx.createMediaStreamSource(micStream); micNode.connect(recDest); }
+        return recDest.stream.getAudioTracks()[0] || null;
+      } catch (e) {}
+    }
+    return micStream ? (micStream.getAudioTracks()[0] || null) : null;
+  }
+  function requestPersist() {
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}
+  }
+
+  // -- the recording canvas --
+  var recCanvas = document.createElement("canvas"), rctx = recCanvas.getContext("2d");
+  // Canvas filters are the cheap way to match the grayscale look; older Safari lacks them, and
+  // then a "saturation" blend over a grey fill does the desaturating (without the contrast lift).
+  var recFilterOk = (function () {
+    try { rctx.filter = "grayscale(1)"; var ok = rctx.filter === "grayscale(1)"; rctx.filter = "none"; return ok; } catch (e) { return false; }
+  })();
+  var recScale = 1, recLastFrame = 0;
+  function recSize(cw, ch) {
+    // About 720 px on the short side, even dimensions for H.264.
+    var scale = Math.min(1, 720 / Math.max(1, Math.min(cw, ch)));
+    var w = Math.max(2, Math.round(cw * scale / 2) * 2), h = Math.max(2, Math.round(ch * scale / 2) * 2);
+    if (recCanvas.width !== w || recCanvas.height !== h) { recCanvas.width = w; recCanvas.height = h; }
+    recScale = w / cw;
+  }
+  function roundRect(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    c.lineTo(x + r, y + h); c.quadraticCurveTo(x, y + h, x, y + h - r);
+    c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
+  }
+  // Called from drawLoop with the same fit maths it used for the boxes. captureStream samples at
+  // 24 fps, so compositing more often than that is wasted work on the iPad.
+  function recFrame(cw, ch, s, ox, oy) {
+    var now = performance.now();
+    if (now - recLastFrame < 38) return;
+    recLastFrame = now;
+    recSize(cw, ch);
+    var k = recScale, W = recCanvas.width, H = recCanvas.height;
+    rctx.setTransform(1, 0, 0, 1, 0, 0);
+    rctx.globalCompositeOperation = "source-over";
+    rctx.globalAlpha = 1;
+    if (recFilterOk) rctx.filter = "none";
+    rctx.fillStyle = "#000"; rctx.fillRect(0, 0, W, H);
+
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if (vw && vh) {
+      rctx.save();
+      if (recFilterOk) rctx.filter = "grayscale(1) contrast(1.15)";
+      if (mirrorChk.checked) { rctx.translate(W, 0); rctx.scale(-1, 1); }
+      try { rctx.drawImage(video, ox * k, oy * k, vw * s * k, vh * s * k); } catch (e) {}
+      rctx.restore();
+      if (!recFilterOk) {
+        rctx.save(); rctx.globalCompositeOperation = "saturation"; rctx.fillStyle = "#808080"; rctx.fillRect(0, 0, W, H); rctx.restore();
+      }
+    }
+    try { rctx.drawImage(canvas, 0, 0, W, H); } catch (e) {}
+
+    var sr = stageEl.getBoundingClientRect();
+    function rel(el) { var r = el.getBoundingClientRect(); return { x: (r.left - sr.left) * k, y: (r.top - sr.top) * k, w: r.width * k, h: r.height * k }; }
+
+    if (!logoEl.hidden && logoEl.naturalWidth) {
+      var lr = rel(logoEl);
+      rctx.save();
+      rctx.globalAlpha = 0.5;
+      if (recFilterOk) rctx.filter = logoEl.classList.contains("dark") ? "brightness(0)" : "brightness(0) invert(1)";
+      try { rctx.drawImage(logoEl, lr.x, lr.y, lr.w, lr.h); } catch (e) {}
+      rctx.restore();
+    }
+
+    rctx.textBaseline = "middle";
+    [recEl, clockEl, trackEl, suspectsEl].forEach(function (el) {
+      if (el.hidden) return;
+      var r = rel(el);
+      roundRect(rctx, r.x, r.y, r.w, r.h, 4 * k);
+      rctx.fillStyle = "rgba(0,0,0,.6)"; rctx.fill();
+      rctx.font = "bold " + (22 * k) + "px Menlo, 'Courier New', monospace";
+      var tx = r.x + 10 * k, ty = r.y + r.h / 2;
+      if (el === recEl) {
+        // Red dot then the plain callsign: the ARMED / CLIP suffix is for the wearer, not the clip.
+        rctx.fillStyle = "#e0161b"; rctx.fillText("●", tx, ty);
+        tx += rctx.measureText("● ").width;
+        rctx.fillStyle = "#fff"; rctx.fillText("REC  CONDOR-07", tx, ty);
+      } else {
+        rctx.fillStyle = "#fff"; rctx.fillText(el.textContent, tx, ty);
+      }
+    });
+
+    if (!alertEl.hidden) {
+      var ar = rel(alertEl);
+      roundRect(rctx, ar.x, ar.y, ar.w, ar.h, 4 * k);
+      rctx.fillStyle = "#e0161b"; rctx.fill();
+      rctx.textBaseline = "top";
+      rctx.font = "bold " + (14 * k) + "px Menlo, 'Courier New', monospace";
+      rctx.fillStyle = "rgba(255,255,255,.85)";
+      rctx.fillText("S Y S T E M  A L E R T", ar.x + 24 * k, ar.y + 12 * k);
+      rctx.font = "bold " + (30 * k) + "px Menlo, 'Courier New', monospace";
+      rctx.fillStyle = "#fff";
+      rctx.fillText(alertTextEl.textContent, ar.x + 24 * k, ar.y + (12 + 14 * 1.2 + 4) * k);
+      rctx.textBaseline = "middle";
+    }
+  }
+  var thumbCanvas = document.createElement("canvas");
+  function makeThumb() {
+    if (!recCanvas.width) return null;
+    var W = 180, H = Math.round(180 * recCanvas.height / recCanvas.width);
+    thumbCanvas.width = W; thumbCanvas.height = H;
+    try { thumbCanvas.getContext("2d").drawImage(recCanvas, 0, 0, W, H); return thumbCanvas.toDataURL("image/jpeg", 0.7); } catch (e) { return null; }
+  }
+
+  // -- the recorder --
+  var recorder = null, recSession = null, recActive = false, recStartedAt = 0, recAlertText = null, recThumb = null, recState = "idle";
+  var REC_MAX_MS = 45000, REC_NO_ALERT_MS = 30000, REC_FACE_GONE_MS = 3000;
+  var lastFaceSeenAt = -1e9, clipsOk = true, clipsOpen = false;
+  function recMime() {
+    if (!window.MediaRecorder) return null;
+    // Safari records mp4; Chrome and Firefox webm. First supported wins, so clips are native to the device.
+    var c = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4",
+             "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+    for (var i = 0; i < c.length; i++) { try { if (MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) {} }
+    return "";
+  }
+  function recStart(reason) {
+    if (recActive || !running || clipsOpen) return false;
+    var mime = recMime();
+    if (mime === null) { recNote("NO RECORDER"); return false; }
+    recSize(canvas.clientWidth || 1, canvas.clientHeight || 1);
+    var stream;
+    try { stream = recCanvas.captureStream(24); } catch (e) { recNote("NO CAPTURE"); return false; }
+    var a = recAudioTrack();
+    if (a) { try { stream.addTrack(a); } catch (e) {} }
+    var opts = { videoBitsPerSecond: 2500000, audioBitsPerSecond: 96000 };
+    if (mime) opts.mimeType = mime;
+    try { recorder = new MediaRecorder(stream, opts); }
+    catch (e) { try { recorder = new MediaRecorder(stream); } catch (e2) { recNote("RECORDER FAILED"); return false; } }
+    // Everything about this clip lives on its own session object. stop() finishes asynchronously,
+    // and in automatic mode the next clip has usually started by the time onstop fires, so the
+    // shared variables below cannot be trusted from inside the callbacks.
+    var sess = { chunks: [], keep: false, done: false, alert: null, thumb: null, startedAt: performance.now(), mode: reason }, r = recorder;
+    recSession = sess; recAlertText = null; recThumb = null;
+    r.ondataavailable = function (ev) { if (ev.data && ev.data.size) sess.chunks.push(ev.data); };
+    r.onstop = function () { recFinish(sess, r.mimeType); };
+    r.onerror = function () { if (recSession === sess) recActive = false; recNote("RECORDER ERROR"); };
+    try { r.start(); } catch (e) { recorder = null; recNote("RECORDER FAILED"); return false; }
+    recActive = true; recStartedAt = sess.startedAt; recState = reason; recLastFrame = 0;
+    setRecHud();
+    return true;
+  }
+  function recStop(keep) {
+    if (!recActive || !recSession) return;
+    var sess = recSession, r = recorder;
+    // Snapshot now: the next clip reuses the globals before this one's onstop gets to run.
+    sess.keep = keep; sess.alert = recAlertText; sess.thumb = recThumb;
+    recActive = false; recorder = null;
+    try { if (r && r.state !== "inactive") r.stop(); else recFinish(sess, r && r.mimeType); } catch (e) { recFinish(sess, r && r.mimeType); }
+  }
+  function recFinish(sess, mimeType) {
+    if (sess.done) return;
+    sess.done = true;
+    var mime = mimeType || recMime() || "video/mp4";
+    var dur = Math.round((performance.now() - sess.startedAt) / 1000);
+    if (!sess.keep || !sess.chunks.length) { setRecHud(); return; }
+    var blob = new Blob(sess.chunks, { type: mime });
+    sess.chunks = [];
+    clipsPut({ at: Date.now() - dur * 1000, alert: sess.alert || "", mode: sess.mode, dur: dur, size: blob.size, mime: mime, thumb: sess.thumb }, blob)
+      .then(function () { flashRecHud("SAVED"); refreshClipsSummary(); })
+      .catch(function (e) { recNote("SAVE FAILED"); setRecHud(); });
+  }
+  function recOnAlertFired() {
+    if (!recActive) return;
+    recAlertText = alertTextEl.textContent;
+    recThumb = makeThumb();
+    setRecHud();
+  }
+  function recOnAlertEnded() {
+    if (recActive && recAlertText) recStop(true);
+  }
+  function recOnCameraStarted() {
+    applyRecMode();
+    refreshClipsSummary();
+    checkStorage();
+  }
+  // Runs from the 250 ms tick. Automatic mode starts a clip whenever a face is on screen and
+  // none is in progress; both modes give up on a clip that never reaches an alert.
+  function recTick(now, visibleCount) {
+    var mode = recMode();
+    if (visibleCount > 0) lastFaceSeenAt = now;
+    if (mode === "off" || !running) { if (recActive) recStop(false); return; }
+    if (recActive) {
+      if (!recAlertText) {
+        if (now - recStartedAt > REC_NO_ALERT_MS) recStop(false);
+        else if (mode === "auto" && visibleCount === 0 && now - lastFaceSeenAt > REC_FACE_GONE_MS) recStop(false);
+      } else if (now - recStartedAt > REC_MAX_MS) recStop(true);
+      setRecHud(now);
+      return;
+    }
+    if (mode === "auto" && visibleCount > 0 && clipsOk && !clipsOpen) recStart("auto");
+  }
+  // Manual mode: the REC overlay is the button. A tap here must not count toward the stage's
+  // double-tap, so it stops before bubbling.
+  recEl.addEventListener("pointerup", function (e) {
+    if (recMode() !== "manual" || !running) return;
+    e.stopPropagation();
+    if (!recActive) { if (clipsOk) recStart("manual"); }
+    else recStop(!!recAlertText);
+  });
+  // The suffix after the callsign. Amber ARMED while waiting, red CLIP with a timer once the
+  // alert fires, a green SAVED flash afterwards; a plain timer in automatic mode.
+  var recFlashUntil = 0, recFlashText = "";
+  function pad2m(ms) { var sec = Math.max(0, Math.round(ms / 1000)); return Math.floor(sec / 60) + ":" + pad2(sec % 60); }
+  function setRecHud(now) {
+    now = now || performance.now();
+    var cls = "hud", text = "";
+    if (now < recFlashUntil) { cls += recFlashText === "SAVED" ? " saved" : " note"; text = "  ·  " + recFlashText; }
+    else if (recActive && recAlertText) { cls += " live"; text = "  ·  CLIP " + pad2m(now - recStartedAt); }
+    else if (recActive && recState === "manual") { cls += " armed"; text = "  ·  ARMED"; }
+    else if (recActive) { cls += " live"; text = "  ·  " + pad2m(now - recStartedAt); }
+    if (recEl.className !== cls) recEl.className = cls;
+    if (recExtra.textContent !== text) recExtra.textContent = text;
+  }
+  function flashRecHud(text, ms) { recFlashText = text; recFlashUntil = performance.now() + (ms || 1500); setRecHud(); setTimeout(setRecHud, (ms || 1500) + 50); }
+  function recNote(text) { flashRecHud(text, 3000); }
+
+  // -- storage: IndexedDB, metadata and video kept apart so listing never loads the videos --
+  var dbPromise = null;
+  function clipsDb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function (res, rej) {
+      if (!window.indexedDB) return rej(new Error("no IndexedDB"));
+      var req = indexedDB.open("facetag", 1);
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains("clips")) db.createObjectStore("clips", { keyPath: "id", autoIncrement: true });
+        if (!db.objectStoreNames.contains("blobs")) db.createObjectStore("blobs", { keyPath: "id" });
+      };
+      req.onsuccess = function () { res(req.result); };
+      req.onerror = function () { rej(req.error); };
+    });
+    dbPromise.catch(function () { dbPromise = null; });
+    return dbPromise;
+  }
+  function clipsPut(meta, blob) {
+    return clipsDb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(["clips", "blobs"], "readwrite");
+        var add = tx.objectStore("clips").add(meta);
+        add.onsuccess = function () { tx.objectStore("blobs").put({ id: add.result, blob: blob }); };
+        tx.oncomplete = function () { res(add.result); };
+        tx.onerror = function () { rej(tx.error); };
+        tx.onabort = function () { rej(tx.error || new Error("aborted")); };
+      });
+    });
+  }
+  function clipsList() {
+    return clipsDb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var out = [], tx = db.transaction("clips", "readonly");
+        tx.objectStore("clips").openCursor(null, "prev").onsuccess = function (ev) { var c = ev.target.result; if (c) { out.push(c.value); c.continue(); } };
+        tx.oncomplete = function () { res(out); };
+        tx.onerror = function () { rej(tx.error); };
+      });
+    });
+  }
+  function clipBlob(id) {
+    return clipsDb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var r = db.transaction("blobs", "readonly").objectStore("blobs").get(id);
+        r.onsuccess = function () { res(r.result ? r.result.blob : null); };
+        r.onerror = function () { rej(r.error); };
+      });
+    });
+  }
+  function clipsDelete(ids) {
+    return clipsDb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(["clips", "blobs"], "readwrite");
+        ids.forEach(function (id) { tx.objectStore("clips").delete(id); tx.objectStore("blobs").delete(id); });
+        tx.oncomplete = res; tx.onerror = function () { rej(tx.error); };
+      });
+    });
+  }
+  function fmtBytes(n) { return n >= 1e9 ? (n / 1e9).toFixed(1) + " GB" : n >= 1e6 ? Math.round(n / 1e6) + " MB" : Math.round(n / 1e3) + " KB"; }
+  function fmtTime(ms) { var d = new Date(ms); return pad2(d.getHours()) + ":" + pad2(d.getMinutes()); }
+  function fmtClock(ms) { var d = new Date(ms); return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()); }
+  var storageFree = null;
+  function checkStorage() {
+    try {
+      if (!navigator.storage || !navigator.storage.estimate) return;
+      navigator.storage.estimate().then(function (est) {
+        if (!est || !est.quota) return;
+        storageFree = est.quota - (est.usage || 0);
+        // Stop starting new clips with less than ~150 MB left, rather than failing mid-save.
+        var ok = storageFree > 150e6;
+        if (clipsOk && !ok) recNote("STORAGE FULL");
+        clipsOk = ok;
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  setInterval(checkStorage, 60000);
+  function refreshClipsSummary() {
+    clipsList().then(function (list) {
+      var bytes = list.reduce(function (a, c) { return a + (c.size || 0); }, 0);
+      clipsSummary.textContent = list.length ? list.length + " · " + fmtBytes(bytes) + " ›" : "none yet ›";
+      clipsInfo.textContent = list.length + (list.length === 1 ? " clip" : " clips") + " · " + fmtBytes(bytes) + " used" +
+        (storageFree !== null ? " · " + fmtBytes(storageFree) + " free" : "");
+    }).catch(function () { clipsSummary.textContent = "unavailable"; });
+  }
+
+  // -- the Clips screen --
+  var clipRows = [], curClip = null, curUrl = null;
+  function openClips() {
+    clipsOpen = true;
+    if (recActive) recStop(!!recAlertText);
+    panel.hidden = true;
+    clipsEl.hidden = false;
+    checkStorage();
+    renderClips();
+  }
+  function closeClips() {
+    clipsOpen = false;
+    clipsEl.hidden = true;
+    try { clipPlayer.pause(); } catch (e) {}
+    selectClip(null);
+    panel.hidden = false;
+    refreshClipsSummary();
+  }
+  clipsBtn.addEventListener("click", openClips);
+  $("clipsClose").addEventListener("click", closeClips);
+  function renderClips() {
+    clipsList().then(function (list) {
+      clipRows = list;
+      refreshClipsSummary();
+      while (clipList.firstChild) clipList.removeChild(clipList.firstChild);
+      if (!list.length) {
+        var empty = document.createElement("div"); empty.className = "empty";
+        empty.textContent = recMode() === "off" ? "No clips yet. Turn on Record clips in settings." : "No clips yet. They appear here after each system alert.";
+        clipList.appendChild(empty);
+        selectClip(null);
+        return;
+      }
+      list.forEach(function (c) {
+        var b = document.createElement("button"); b.type = "button"; b.className = "row" + (curClip && curClip.id === c.id ? " cur" : "");
+        var th = document.createElement("span"); th.className = "th"; if (c.thumb) th.style.backgroundImage = "url(" + c.thumb + ")";
+        var tm = document.createElement("span"); tm.className = "tm"; tm.textContent = fmtTime(c.at);
+        var t = document.createElement("span"); t.textContent = c.alert || "(no alert)";
+        var d = document.createElement("span"); d.className = "d"; d.textContent = c.dur + " s";
+        b.appendChild(th); b.appendChild(tm); b.appendChild(t); b.appendChild(d);
+        b.addEventListener("click", function () { selectClip(c); });
+        clipList.appendChild(b);
+      });
+      if (!curClip || !list.some(function (c) { return c.id === curClip.id; })) selectClip(list[0]);
+    }).catch(function (e) {
+      while (clipList.firstChild) clipList.removeChild(clipList.firstChild);
+      var err = document.createElement("div"); err.className = "empty"; err.textContent = "Clips storage unavailable: " + (e && e.message || e);
+      clipList.appendChild(err);
+    });
+  }
+  function selectClip(c) {
+    curClip = c;
+    if (curUrl) { try { URL.revokeObjectURL(curUrl); } catch (e) {} curUrl = null; }
+    Array.prototype.forEach.call(clipList.children, function (row, i) { if (row.classList) row.classList.toggle("cur", !!c && clipRows[i] && clipRows[i].id === c.id); });
+    if (!c) { clipTitle.textContent = "No clip selected"; clipSub.textContent = ""; clipPlayer.removeAttribute("src"); try { clipPlayer.load(); } catch (e) {} return; }
+    var idx = clipRows.indexOf(c) + 1;
+    clipTitle.textContent = c.alert || "(no alert)";
+    clipSub.textContent = "Clip " + idx + " of " + clipRows.length + " · " + fmtClock(c.at) + " · " + c.dur + " s · " + fmtBytes(c.size || 0);
+    clipBlob(c.id).then(function (blob) {
+      if (curClip !== c || !blob) return;
+      curUrl = URL.createObjectURL(blob);
+      clipPlayer.src = curUrl;
+    }).catch(function () {});
+  }
+  function clipFile(c, blob) {
+    var ext = /webm/.test(c.mime || blob.type) ? "webm" : "mp4";
+    var d = new Date(c.at);
+    var name = "FaceTag " + d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " + pad2(d.getHours()) + "." + pad2(d.getMinutes()) + "." + pad2(d.getSeconds()) +
+      (c.alert ? " " + c.alert.replace(/[\\\/:*?"<>|]+/g, "-") : "") + "." + ext;
+    try { return new File([blob], name, { type: blob.type || c.mime }); } catch (e) { blob.name = name; return blob; }
+  }
+  // The iOS share sheet does AirDrop and Save Video; browsers without it get a download instead.
+  function shareFiles(files, title) {
+    if (navigator.share && navigator.canShare) {
+      var can = false; try { can = navigator.canShare({ files: files }); } catch (e) {}
+      if (can) return navigator.share({ files: files, title: title }).catch(function () {});
+    }
+    files.forEach(function (f, i) {
+      setTimeout(function () {
+        var a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name || "clip";
+        document.body.appendChild(a); a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+      }, i * 300);
+    });
+    return Promise.resolve();
+  }
+  $("clipShare").addEventListener("click", function () {
+    if (!curClip) return;
+    var c = curClip;
+    clipBlob(c.id).then(function (blob) { if (blob) return shareFiles([clipFile(c, blob)], c.alert || "Face Tag clip"); });
+  });
+  $("clipDelete").addEventListener("click", function () {
+    if (!curClip) return;
+    var c = curClip;
+    if (!confirm("Delete this clip?")) return;
+    clipsDelete([c.id]).then(function () { curClip = null; renderClips(); });
+  });
+  $("clipsDeleteAll").addEventListener("click", function () {
+    if (!clipRows.length) return;
+    if (!confirm("Delete all " + clipRows.length + " clips from this iPad? This cannot be undone.")) return;
+    clipsDelete(clipRows.map(function (c) { return c.id; })).then(function () { curClip = null; renderClips(); });
+  });
+  // The share sheet copes with a few dozen files at once, not hundreds: newest batch first,
+  // and the button tells you how many are left.
+  var SHARE_BATCH = 30, shareOffset = 0;
+  $("clipsShareAll").addEventListener("click", function () {
+    if (!clipRows.length) return;
+    var batch = clipRows.slice(shareOffset, shareOffset + SHARE_BATCH);
+    if (!batch.length) { shareOffset = 0; batch = clipRows.slice(0, SHARE_BATCH); }
+    Promise.all(batch.map(function (c) { return clipBlob(c.id).then(function (b) { return b ? clipFile(c, b) : null; }); }))
+      .then(function (files) {
+        files = files.filter(Boolean);
+        shareOffset += batch.length;
+        var left = clipRows.length - shareOffset;
+        $("clipsShareAll").textContent = left > 0 ? "Share / Save next " + Math.min(left, SHARE_BATCH) + " (" + left + " left)…" : "Share / Save all…";
+        if (left <= 0) shareOffset = 0;
+        return shareFiles(files, "Face Tag clips");
+      });
+  });
+  applyRecMode();
 
   var lastDraw = 0, canvasClear = false;
   function drawLoop() {
     var nowD = performance.now();
     var anyVisible = tracks.some(function (t) { return nowD - t.seen <= 250; });
-    if (!anyVisible && preset().skipDraw && canvasClear) {
+    if (!anyVisible && preset().skipDraw && canvasClear && !recActive) {
       lastDraw = nowD;
       requestAnimationFrame(drawLoop);
       return;
@@ -5793,6 +6348,7 @@ return a / b;`,aie=`
         ctx.fillStyle = "#000";
         ctx.fillText(conf, cx + padX, cy + bh / 2 + 1);
       });
+      if (recActive) recFrame(cw, ch, s, ox, oy);
     }
     requestAnimationFrame(drawLoop);
   }
