@@ -1,2 +1,4 @@
 # Audio assets must never go through line-ending conversion.
 *.mp3 binary
+# Face model weight shards, likewise.
+models/*-shard* binary

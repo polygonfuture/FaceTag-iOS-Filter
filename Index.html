@@ -97,7 +97,9 @@
   #clips .info { font-size:14px; color:#aaa; margin-top:2px; }
   #clips .round { width:44px; height:44px; border-radius:22px; border:1px solid #444; background:#1c1c1c; color:#eee; font-size:22px; line-height:1; padding:0; }
   #clips .body { flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:14px 20px 0; }
-  #clipPlayer { display:block; width:100%; aspect-ratio:3 / 4; max-height:48vh; border-radius:10px; background:#000; object-fit:contain; }
+  /* Undo the camera feed's full-screen, greyscale video rule: clips are already grey, apart from
+     the red alert banner, and the player sits in the page flow. */
+  #clipPlayer { display:block; position:static; width:100%; height:auto; aspect-ratio:3 / 4; max-height:48vh; border-radius:10px; background:#000; object-fit:contain; filter:none; transform:none; }
   #clips .meta { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:10px 0 14px; }
   #clips .meta .t { font-size:17px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #clips .meta .s { font-size:14px; color:#aaa; margin-top:2px; }
@@ -112,9 +114,44 @@
   #clipList .row .tm { color:#aaa; font-family:Menlo, monospace; font-size:13px; margin-right:10px; }
   #clipList .row.cur .tm, #clipList .row.cur .d { color:#bfe; }
   #clipList .row .d { margin-left:auto; color:#aaa; font-size:13px; }
-  #clipList .empty { color:#888; font-size:15px; padding:24px 4px; text-align:center; }
+  #clipList .row .who { color:#8fd; margin-left:8px; }
+  #clipList .row.cur .who { color:#fff; }
+  #clips .empty { color:#888; font-size:15px; padding:24px 4px; text-align:center; line-height:1.4; }
   #clips .foot { display:flex; flex-direction:column; gap:10px; padding:12px 20px calc(16px + env(safe-area-inset-bottom)); border-top:1px solid #2a2a2a; }
   #clips .foot .note { font-size:13px; color:#999; line-height:1.4; }
+  #clips button.b:disabled { opacity:.45; }
+  #clips button.b.more { width:100%; }
+
+  /* Visits / Names / All clips switch, and the header shown inside one visit or name. */
+  #clipsTabs { display:flex; flex-shrink:0; margin:14px 20px 0; border:1px solid #444; border-radius:10px; overflow:hidden; }
+  #clipsTabs button { flex:1 1 0; height:40px; padding:0 8px; border:0; background:#1c1c1c; color:#eee; font-size:15px; }
+  #clipsTabs button + button { border-left:1px solid #444; }
+  #clipsTabs button[aria-selected="true"] { background:#2a7; color:#fff; font-weight:600; }
+  #clips.ingroup #clipsTabs { display:none; }
+  #groupHead { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
+  #groupHead[hidden] { display:none; }
+  #groupHead .gname { flex:1 1 auto; min-width:0; }
+  #groupHead label { display:block; font-size:12px; color:#999; letter-spacing:.06em; text-transform:uppercase; }
+  #groupName { width:100%; box-sizing:border-box; font-size:20px; font-weight:600; padding:4px 0; border:0; border-bottom:1px solid #444; border-radius:0; background:transparent; color:#eee; }
+  #groupHead .gsum { font-size:14px; color:#aaa; white-space:nowrap; }
+  #clips .cname { display:flex; align-items:center; gap:10px; margin:-4px 0 14px; }
+  #clips .cname label { font-size:14px; color:#aaa; white-space:nowrap; }
+  #clips input.nm { flex:1 1 auto; width:100%; min-width:0; box-sizing:border-box; font-size:16px; padding:8px 10px; border-radius:8px; border:1px solid #555; background:#141414; color:#eee; }
+
+  /* One card per visit or per name. The whole card opens it; the name field and Share do not. */
+  #groupList { display:flex; flex-direction:column; gap:8px; padding-bottom:16px; }
+  #groupList[hidden], #playerView[hidden] { display:none; }
+  #groupList .hint { font-size:13px; color:#999; line-height:1.4; margin:0 2px 4px; }
+  #groupList .card { display:flex; align-items:center; gap:12px; padding:8px 6px 8px 8px; border:1px solid #444; border-radius:10px; background:#1c1c1c; cursor:pointer; }
+  #groupList .thumbs { display:flex; gap:3px; flex-shrink:0; }
+  #groupList .th { width:44px; height:58px; border-radius:4px; background:#000 center/cover no-repeat; }
+  #groupList .av { width:52px; height:52px; margin-right:4px; align-self:center; border-radius:50%; background:#2a2a2a center/cover no-repeat; }
+  #groupList .mid { flex:1 1 auto; min-width:0; }
+  #groupList .when { font-size:15px; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #groupList .when small { color:#aaa; font-size:13px; }
+  #groupList .n { font-size:17px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #groupList .s { font-size:14px; color:#aaa; margin-top:2px; }
+  #groupList .chev { font-size:24px; color:#888; padding:0 4px; }
 </style>
 </head>
 <body>
@@ -162,6 +199,11 @@
     <option value="manual">Manual: tap the REC overlay to clip the next alert</option>
   </select>
   <div class="sub">Uses the microphone. Clips stay on this iPad until you export them; nothing is uploaded.</div>
+  <div class="row">
+    <input type="checkbox" id="faceGroups">
+    <label for="faceGroups">Group clips by similar faces</label>
+  </div>
+  <div class="sub">Sorts clips into people, like the Photos app. Matching runs on this iPad while the app is open; the face data it uses is never saved or shared, only which group each clip went into.</div>
   <button type="button" id="clipsBtn"><span>Clips</span><small id="clipsSummary">none yet</small></button>
 
   <label for="alertFreq">Alert frequency</label>
@@ -185,7 +227,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 20</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 22</div>
 </div>
 
 <div id="clips" hidden>
@@ -193,17 +235,39 @@
     <div><h2>Clips</h2><div class="info" id="clipsInfo"></div></div>
     <button type="button" class="round" id="clipsClose" aria-label="Close clips">&#215;</button>
   </div>
-  <div class="body">
-    <video id="clipPlayer" playsinline controls preload="metadata"></video>
-    <div class="meta">
-      <div style="min-width:0"><div class="t" id="clipTitle">No clip selected</div><div class="s" id="clipSub"></div></div>
-      <div class="btns">
-        <button type="button" class="b" id="clipShare">Share / Save</button>
-        <button type="button" class="b danger" id="clipDelete">Delete</button>
-      </div>
-    </div>
-    <div id="clipList"></div>
+  <div id="clipsTabs" role="tablist">
+    <button type="button" role="tab" data-view="groups">Groups</button>
+    <button type="button" role="tab" data-view="names">Names</button>
+    <button type="button" role="tab" data-view="all">All clips</button>
   </div>
+  <div class="body" id="clipsBody">
+    <div id="groupHead" hidden>
+      <button type="button" class="round" id="groupBack" aria-label="Back">&#8249;</button>
+      <div class="gname">
+        <label for="groupName" id="groupLabel">Name</label>
+        <input type="text" id="groupName" list="clipNames" maxlength="40" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" placeholder="Add a name">
+      </div>
+      <div class="gsum" id="groupSum"></div>
+    </div>
+    <div id="playerView">
+      <video id="clipPlayer" playsinline controls preload="metadata"></video>
+      <div class="meta">
+        <div style="min-width:0"><div class="t" id="clipTitle">No clip selected</div><div class="s" id="clipSub"></div></div>
+        <div class="btns">
+          <button type="button" class="b" id="clipShare">Share / Save</button>
+          <button type="button" class="b" id="clipUngroup" hidden>Not them</button>
+          <button type="button" class="b danger" id="clipDelete">Delete</button>
+        </div>
+      </div>
+      <div class="cname">
+        <label for="clipName">This clip</label>
+        <input type="text" class="nm" id="clipName" list="clipNames" maxlength="40" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" placeholder="Who is in it?">
+      </div>
+      <div id="clipList"></div>
+    </div>
+    <div id="groupList" hidden></div>
+  </div>
+  <datalist id="clipNames"></datalist>
   <div class="foot">
     <div class="note">Share opens the iPad share sheet: AirDrop to a friend, or Save Video to put it in Photos. Both work with no wifi. Clips only leave this iPad when you send them.</div>
     <div class="btns">
@@ -5827,7 +5891,7 @@ return a / b;`,aie=`
     var mode = recMode();
     stageEl.classList.toggle("manual", mode === "manual");
     if (mode === "off") { if (recActive) recStop(false); setRecHud(); return; }
-    if (running) { ensureMic(); requestPersist(); }
+    if (running) { ensureMic(); requestPersist(); if (faceChk.checked) loadFaceNets(); }
   }
 
   // -- microphone, mixed with the alert sounds --
@@ -5855,6 +5919,109 @@ return a / b;`,aie=`
   }
   function requestPersist() {
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}
+  }
+
+  // -- grouping clips by similar faces (optional) --
+  // Works like the People album in Photos, kept tighter: the face fingerprints (128 numbers per
+  // face, from face-api's recognition model) live only in faceGroups below, in memory, while the
+  // app is open. They are never written to storage, never put in a shared file and never exposed
+  // outside this script; a saved clip records just the id of the group it went into. Closing or
+  // reloading the app forgets every fingerprint, and new groups start from there.
+  var faceChk = $("faceGroups"), FACE_KEY = "facetag.faceGroups";
+  try { faceChk.checked = localStorage.getItem(FACE_KEY) === "1"; } catch (e) {}
+  var faceGroups = [], faceNetsReady = false, faceNetsPromise = null, faceBusy = false;
+  // Fingerprint distance under which two faces count as the same person. face-api suggests 0.6;
+  // a little stricter here, because one person split in two is fixed by naming both groups the
+  // same, while two people mixed up means sending someone the wrong clips.
+  var FACE_MATCH = 0.5;
+  var faceOpts = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 });
+  faceChk.addEventListener("change", function () {
+    try { localStorage.setItem(FACE_KEY, faceChk.checked ? "1" : "0"); } catch (e) {}
+    if (!faceChk.checked) faceGroups = [];
+    else if (running && recMode() !== "off") loadFaceNets();
+  });
+  // The landmark and recognition models (about 6.5 MB) come from the models folder next to this
+  // page, the same way the sounds do, and only once the setting is on.
+  function loadFaceNets() {
+    if (faceNetsPromise) return faceNetsPromise;
+    var blank = document.createElement("canvas"); blank.width = blank.height = 150;
+    faceNetsPromise = Promise.all([faceapi.nets.faceLandmark68TinyNet.loadFromUri("./models"), faceapi.nets.faceRecognitionNet.loadFromUri("./models")])
+      // One pass over a blank image compiles the GPU shaders now, rather than stalling the first alert.
+      .then(function () { return faceapi.nets.faceLandmark68TinyNet.detectLandmarks(blank); })
+      .then(function () { return faceapi.nets.faceRecognitionNet.computeFaceDescriptor(blank); })
+      .then(function () { faceNetsReady = true; })
+      .catch(function () { faceNetsPromise = null; recNote("FACE GROUPS OFF"); });
+    return faceNetsPromise;
+  }
+  // A square around a tracked box in camera pixels, grown by margin on each side, inside the frame.
+  function boxAround(t, margin) {
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    var side = Math.max(t.tw, t.th) * (1 + 2 * margin);
+    var x = Math.max(0, t.tx + t.tw / 2 - side / 2), y = Math.max(0, t.ty + t.th / 2 - side / 2);
+    var w = Math.min(vw - x, side), h = Math.min(vh - y, side);
+    return w > 8 && h > 8 ? { x: x, y: y, w: w, h: h } : null;
+  }
+  // A small picture of the face an alert is about, for the Clips screen; mirrored and grey like the clip.
+  var faceThumbCanvas = document.createElement("canvas"); faceThumbCanvas.width = faceThumbCanvas.height = 96;
+  function faceThumbOf(t) {
+    var r = boxAround(t, 0.3), c = faceThumbCanvas.getContext("2d");
+    if (!r) return null;
+    try {
+      c.save();
+      c.fillStyle = "#000"; c.fillRect(0, 0, 96, 96);
+      if (recFilterOk) c.filter = "grayscale(1) contrast(1.15)";
+      if (mirrorChk.checked) { c.translate(96, 0); c.scale(-1, 1); }
+      c.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, 96, 96);
+      c.restore();
+      return faceThumbCanvas.toDataURL("image/jpeg", 0.75);
+    } catch (e) { try { c.restore(); } catch (e2) {} return null; }
+  }
+  // The fingerprint of one tracked face, from a crop around its box so nobody else in frame gets
+  // in. Taken straight from the camera: unmirrored, full colour, no overlays.
+  var faceCrop = document.createElement("canvas");
+  function describeTrack(t) {
+    var r = boxAround(t, 0.6);
+    if (!r) return Promise.resolve(null);
+    var k = Math.min(1, 320 / Math.max(r.w, r.h));
+    faceCrop.width = Math.round(r.w * k); faceCrop.height = Math.round(r.h * k);
+    faceCrop.getContext("2d").drawImage(video, r.x, r.y, r.w, r.h, 0, 0, faceCrop.width, faceCrop.height);
+    return faceapi.detectSingleFace(faceCrop, faceOpts).withFaceLandmarks(true).withFaceDescriptor()
+      .then(function (res) { return res ? res.descriptor : null; });
+  }
+  function faceDist(d, g) {
+    var s = 0;
+    for (var i = 0; i < d.length; i++) { var x = d[i] - g.sum[i] / g.n; s += x * x; }
+    return Math.sqrt(s);
+  }
+  // The group for a new fingerprint: the box's own group if this tracked face already has one,
+  // else the closest group within FACE_MATCH, else a new group. Each group keeps the running mean
+  // of the fingerprints that went into it.
+  function faceGroupFor(t, d) {
+    var g = t.face ? faceGroups.filter(function (x) { return x.id === t.face; })[0] : null, dist = g ? faceDist(d, g) : 0;
+    if (!g) {
+      dist = FACE_MATCH;
+      faceGroups.forEach(function (x) { var e = faceDist(d, x); if (e < dist) { dist = e; g = x; } });
+    }
+    if (!g) { g = { id: Date.now(), sum: new Float32Array(d.length), n: 0 }; faceGroups.push(g); dist = 0; }
+    // A turned head or a hand in the way gives a poor fingerprint; it keeps the clip in the box's
+    // group but does not get to pull the group's mean around.
+    if (dist < FACE_MATCH) { for (var i = 0; i < d.length; i++) g.sum[i] += d[i]; g.n++; }
+    t.face = g.id;
+    return g.id;
+  }
+  // Runs when a recorded alert fires. The result lands on the clip's own session object, and the
+  // save waits for it (up to 3 s; it normally takes a fraction of a second).
+  function faceForClip(t, sess) {
+    if (!sess) return;
+    if (t.face) sess.face = t.face;
+    if (!faceNetsReady || faceBusy) { loadFaceNets(); return; }
+    faceBusy = true;
+    var work = describeTrack(t)
+      .then(function (d) { if (d && faceChk.checked) sess.face = faceGroupFor(t, d); })
+      .catch(function () {})
+      .then(function () { faceBusy = false; });
+    sess.facePending = Promise.race([work, new Promise(function (r) { setTimeout(r, 3000); })]);
   }
 
   // -- the recording canvas --
@@ -5959,7 +6126,7 @@ return a / b;`,aie=`
   }
 
   // -- the recorder --
-  var recorder = null, recSession = null, recActive = false, recStartedAt = 0, recAlertText = null, recThumb = null, recState = "idle";
+  var recorder = null, recSession = null, recActive = false, recStartedAt = 0, recAlertText = null, recThumb = null, recVisit = 0, recFaceThumb = null, recState = "idle";
   var REC_MAX_MS = 45000, REC_NO_ALERT_MS = 30000, REC_FACE_GONE_MS = 3000;
   var lastFaceSeenAt = -1e9, clipsOk = true, clipsOpen = false;
   function recMime() {
@@ -5987,7 +6154,7 @@ return a / b;`,aie=`
     // and in automatic mode the next clip has usually started by the time onstop fires, so the
     // shared variables below cannot be trusted from inside the callbacks.
     var sess = { chunks: [], keep: false, done: false, alert: null, thumb: null, startedAt: performance.now(), mode: reason }, r = recorder;
-    recSession = sess; recAlertText = null; recThumb = null;
+    recSession = sess; recAlertText = null; recThumb = null; recVisit = 0; recFaceThumb = null;
     r.ondataavailable = function (ev) { if (ev.data && ev.data.size) sess.chunks.push(ev.data); };
     r.onstop = function () { recFinish(sess, r.mimeType); };
     r.onerror = function () { if (recSession === sess) recActive = false; recNote("RECORDER ERROR"); };
@@ -6000,7 +6167,7 @@ return a / b;`,aie=`
     if (!recActive || !recSession) return;
     var sess = recSession, r = recorder;
     // Snapshot now: the next clip reuses the globals before this one's onstop gets to run.
-    sess.keep = keep; sess.alert = recAlertText; sess.thumb = recThumb;
+    sess.keep = keep; sess.alert = recAlertText; sess.thumb = recThumb; sess.visit = recVisit; sess.faceThumb = recFaceThumb;
     recActive = false; recorder = null;
     try { if (r && r.state !== "inactive") r.stop(); else recFinish(sess, r && r.mimeType); } catch (e) { recFinish(sess, r && r.mimeType); }
   }
@@ -6010,16 +6177,35 @@ return a / b;`,aie=`
     var mime = mimeType || recMime() || "video/mp4";
     var dur = Math.round((performance.now() - sess.startedAt) / 1000);
     if (!sess.keep || !sess.chunks.length) { setRecHud(); return; }
-    var blob = new Blob(sess.chunks, { type: mime });
+    var blob = new Blob(sess.chunks, { type: mime }), at = Date.now() - dur * 1000;
     sess.chunks = [];
-    clipsPut({ at: Date.now() - dur * 1000, alert: sess.alert || "", mode: sess.mode, dur: dur, size: blob.size, mime: mime, thumb: sess.thumb }, blob)
-      .then(function () { flashRecHud("SAVED"); refreshClipsSummary(); })
+    // A face match still running finishes first, so the clip is saved with its group.
+    (sess.facePending || Promise.resolve())
+      .then(function () {
+        return clipsPut({ at: at, alert: sess.alert || "", mode: sess.mode, dur: dur, size: blob.size, mime: mime, thumb: sess.thumb,
+                          visit: sess.visit || 0, face: sess.face || 0, faceThumb: sess.faceThumb || null }, blob);
+      })
+      .then(function () {
+        flashRecHud("SAVED"); refreshClipsSummary();
+        // Opening Clips stops the clip in progress, which finishes saving just after the screen
+        // has drawn; show it, unless that would throw away a name being typed.
+        if (clipsOpen && !clipsEl.contains(document.activeElement)) renderClips();
+      })
       .catch(function (e) { recNote("SAVE FAILED"); setRecHud(); });
   }
   function recOnAlertFired() {
     if (!recActive) return;
     recAlertText = alertTextEl.textContent;
     recThumb = makeThumb();
+    // The box this alert is about. Every clip of that box, for as long as the tracker keeps hold
+    // of it, shares one visit id. With face groups on, the face is also matched against everyone
+    // seen so far, so someone who steps out of frame and comes back lands in the same group.
+    if (alertTrack) {
+      if (!alertTrack.visit) alertTrack.visit = Date.now();
+      recVisit = alertTrack.visit;
+      recFaceThumb = faceThumbOf(alertTrack);
+      if (faceChk.checked) faceForClip(alertTrack, recSession);
+    }
     setRecHud();
   }
   function recOnAlertEnded() {
@@ -6129,6 +6315,21 @@ return a / b;`,aie=`
       });
     });
   }
+  // Names and group fixes are written onto each clip's own record, so they survive a crash the
+  // same way clips do.
+  function clipsPatch(ids, change) {
+    return clipsDb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction("clips", "readwrite"), st = tx.objectStore("clips");
+        ids.forEach(function (id) {
+          var g = st.get(id);
+          g.onsuccess = function () { var m = g.result; if (!m) return; change(m); st.put(m); };
+        });
+        tx.oncomplete = res; tx.onerror = function () { rej(tx.error); };
+      });
+    });
+  }
+  function clipsSetName(ids, name) { return clipsPatch(ids, function (m) { if (name) m.name = name; else delete m.name; }); }
   function fmtBytes(n) { return n >= 1e9 ? (n / 1e9).toFixed(1) + " GB" : n >= 1e6 ? Math.round(n / 1e6) + " MB" : Math.round(n / 1e3) + " KB"; }
   function fmtTime(ms) { var d = new Date(ms); return pad2(d.getHours()) + ":" + pad2(d.getMinutes()); }
   function fmtClock(ms) { var d = new Date(ms); return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()); }
@@ -6157,7 +6358,18 @@ return a / b;`,aie=`
   }
 
   // -- the Clips screen --
-  var clipRows = [], curClip = null, curUrl = null;
+  // Three views: Groups (one person by similar face, or one visit when face groups are off; see
+  // groupKey), Names (all the clips given the same name), and All clips. Opening a group or a
+  // name shows just its clips with the player. Names are only ever typed by hand.
+  var clipRows = [], viewRows = [], curClip = null, curUrl = null, curUrlId = null;
+  var clipsView = "groups", clipsGroup = null;   // clipsGroup: { kind: "group" | "name", key, from }
+  var listMemo = null;                           // where the list was, to come back to from a group
+  var clipsBody = $("clipsBody"), clipsTabs = $("clipsTabs"), playerView = $("playerView"), groupList = $("groupList");
+  var groupHead = $("groupHead"), groupLabel = $("groupLabel"), groupName = $("groupName"), groupSum = $("groupSum");
+  var clipNameIn = $("clipName"), clipNames = $("clipNames"), clipShareBtn = $("clipShare"), clipDeleteBtn = $("clipDelete"), clipUngroupBtn = $("clipUngroup");
+  var shareAllBtn = $("clipsShareAll"), deleteAllBtn = $("clipsDeleteAll");
+  var PAGE = 40, SHARE_BATCH = 30, shareOffset = 0;
+
   function openClips() {
     clipsOpen = true;
     if (recActive) recStop(!!recAlertText);
@@ -6167,6 +6379,7 @@ return a / b;`,aie=`
     renderClips();
   }
   function closeClips() {
+    commitEdits();
     clipsOpen = false;
     clipsEl.hidden = true;
     try { clipPlayer.pause(); } catch (e) {}
@@ -6176,54 +6389,327 @@ return a / b;`,aie=`
   }
   clipsBtn.addEventListener("click", openClips);
   $("clipsClose").addEventListener("click", closeClips);
+  // Name fields save on change, which needs a blur; leaving a view must not drop a half-typed name.
+  function commitEdits() {
+    var a = document.activeElement;
+    if (a && a.tagName === "INPUT" && clipsEl.contains(a)) a.blur();
+  }
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function clearEl(e) { while (e.firstChild) e.removeChild(e.firstChild); }
+  function cleanName(s) { return String(s || "").replace(/\s+/g, " ").trim().slice(0, 40); }
+  function nameKey(s) { return cleanName(s).toLowerCase(); }
+  function byName(c) { return nameKey(c.name); }
+  // Clips saved before Version 21 have no visit id; each of those stands alone.
+  function visitKey(c) { return c.visit ? "v" + c.visit : "c" + c.id; }
+  // A clip matched to a face group (see faceGroupFor) goes with that person. One that got no match
+  // of its own (models still loading, head turned) follows the rest of its visit; one taken out
+  // with Not them (face -1) stays with its visit only.
+  var visitFace = {};
+  function indexFaces() {
+    visitFace = {};
+    clipRows.forEach(function (c) { if (c.face > 0 && c.visit && !visitFace[c.visit]) visitFace[c.visit] = c.face; });
+  }
+  function groupKey(c) {
+    var f = c.face > 0 ? c.face : c.face === -1 ? 0 : visitFace[c.visit];
+    return f ? "f" + f : visitKey(c);
+  }
+  function inFaceGroup(c) { return groupKey(c).charAt(0) === "f"; }
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+  function fmtDur(sec) { return sec >= 60 ? Math.floor(sec / 60) + " min " + pad2(sec % 60) + " s" : sec + " s"; }
+  // Buckets clips (newest first) by key, keeping that order; clips with an empty key are left out.
+  function groupBy(list, keyFn) {
+    var map = {}, out = [];
+    list.forEach(function (c) {
+      var k = keyFn(c);
+      if (!k) return;
+      var g = map[k];
+      if (!g) { g = map[k] = { key: k, clips: [], dur: 0, size: 0 }; out.push(g); }
+      g.clips.push(c); g.dur += c.dur || 0; g.size += c.size || 0;
+    });
+    return out;
+  }
+  // The name a set of clips shares, if they all have the same one, and a placeholder otherwise.
+  function sharedName(clips) {
+    var seen = {}, names = [], all = true;
+    clips.forEach(function (c) {
+      var n = cleanName(c.name);
+      if (!n) { all = false; return; }
+      if (!seen[nameKey(n)]) { seen[nameKey(n)] = 1; names.push(n); }
+    });
+    if (all && names.length === 1) return { name: names[0], hint: "Add a name" };
+    return { name: "", hint: names.length ? names.join(", ") + (all ? " (mixed)" : " (some clips)") : "Add a name" };
+  }
+  function visitWhen(clips) {
+    var last = clips[0], a = fmtTime(clips[clips.length - 1].at), b = fmtTime(last.at + (last.dur || 0) * 1000);
+    return a === b ? a : a + "–" + b;
+  }
+  function whoText(c) { return c.name ? "· " + cleanName(c.name) : ""; }
+  function emptyText() {
+    return recMode() === "off" ? "No clips yet. Turn on Record clips in settings." : "No clips yet. They appear here after each system alert.";
+  }
+
+  function setName(clips, value) {
+    var name = cleanName(value), key = nameKey(name), mine = {};
+    clips.forEach(function (c) { mine[c.id] = 1; });
+    // Typing "dave" when there is already a "Dave" files these under "Dave" too.
+    if (name) clipRows.some(function (c) { if (!mine[c.id] && c.name && nameKey(c.name) === key) { name = cleanName(c.name); return true; } });
+    clips.forEach(function (c) { if (name) c.name = name; else delete c.name; });
+    refreshNameList();
+    updateTabs();
+    // If the write fails, reloading shows what is really stored rather than what was typed.
+    return clipsSetName(clips.map(function (c) { return c.id; }), name).catch(function () { renderClips(); });
+  }
+  // Every name used so far, offered as suggestions above the keyboard.
+  function refreshNameList() {
+    clearEl(clipNames);
+    groupBy(clipRows, byName).map(function (g) { return cleanName(g.clips[0].name); })
+      .sort(function (a, b) { return a.toLowerCase() < b.toLowerCase() ? -1 : 1; })
+      .forEach(function (n) { var o = document.createElement("option"); o.value = n; clipNames.appendChild(o); });
+  }
+  function nameInput(value, placeholder) {
+    var inp = el("input", "nm");
+    inp.type = "text"; inp.maxLength = 40; inp.value = value; inp.placeholder = placeholder;
+    inp.setAttribute("list", "clipNames"); inp.setAttribute("autocomplete", "off"); inp.setAttribute("autocorrect", "off");
+    inp.setAttribute("autocapitalize", "words"); inp.setAttribute("spellcheck", "false"); inp.setAttribute("aria-label", "Name");
+    inp.addEventListener("click", function (e) { e.stopPropagation(); });
+    inp.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter") inp.blur(); });
+    return inp;
+  }
+  function thumbEl(c) { var t = el("span", "th"); if (c.thumb) t.style.backgroundImage = "url(" + c.thumb + ")"; return t; }
+  // The face from the newest clip that has one (clips before Version 22 do not), or null.
+  function avatarEl(clips) {
+    var c = clips.filter(function (x) { return x.faceThumb; })[0];
+    if (!c) return null;
+    var a = el("span", "av"); a.style.backgroundImage = "url(" + c.faceThumb + ")";
+    return a;
+  }
+  // Long lists draw a page at a time: a five-hour party is well over a thousand clips.
+  function pageInto(box, items, make, atLeast) {
+    var n = 0;
+    function more(count) {
+      var stop = Math.min(items.length, n + count);
+      for (; n < stop; n++) box.appendChild(make(items[n]));
+      box.setAttribute("data-shown", n);
+      if (n < items.length) {
+        var b = el("button", "b more", "Show more (" + (items.length - n) + " left)"); b.type = "button";
+        b.addEventListener("click", function () { b.remove(); more(PAGE); });
+        box.appendChild(b);
+      }
+    }
+    more(Math.max(PAGE, atLeast || 0));
+  }
+  function card(open) {
+    var c = el("div", "card"); c.setAttribute("role", "button"); c.tabIndex = 0;
+    c.addEventListener("click", open);
+    c.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+    return c;
+  }
+  // More than one share sheet's worth opens the visit or name instead, where the footer button
+  // goes through them a batch at a time.
+  function shareButton(clips, open) {
+    var b = el("button", "b", "Share " + clips.length); b.type = "button";
+    b.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (clips.length > SHARE_BATCH) open(); else shareClips(clips, shareTitle(clips));
+    });
+    return b;
+  }
+  function groupCard(g) {
+    var clips = g.clips, open = function () { openGroup({ kind: "group", key: g.key, from: "groups" }); };
+    var c = card(open), th = el("div", "thumbs"), mid = el("div", "mid"), when = el("div", "when", visitWhen(clips));
+    var av = avatarEl(clips), visits = groupBy(clips, visitKey).length;
+    if (av) th.appendChild(av);
+    clips.slice(av ? -2 : -3).reverse().forEach(function (x) { th.appendChild(thumbEl(x)); });
+    when.appendChild(el("small", null, "  ·  " + plural(clips.length, "clip", "clips") + (visits > 1 ? " · " + plural(visits, "visit", "visits") : "") + " · " + fmtDur(g.dur)));
+    var sn = sharedName(clips), inp = nameInput(sn.name, sn.hint);
+    inp.addEventListener("change", function () {
+      setName(clips, inp.value);
+      inp.value = cleanName(clips[0].name);
+      if (!inp.value) inp.placeholder = "Add a name";
+    });
+    mid.appendChild(when); mid.appendChild(inp);
+    c.appendChild(th); c.appendChild(mid); c.appendChild(shareButton(clips, open)); c.appendChild(el("span", "chev", "›"));
+    return c;
+  }
+  function personCard(g) {
+    var clips = g.clips, open = function () { openGroup({ kind: "name", key: g.key, from: "names" }); };
+    var c = card(open), th = el("div", "thumbs"), mid = el("div", "mid");
+    th.appendChild(avatarEl(clips) || thumbEl(clips[0]));
+    mid.appendChild(el("div", "n", cleanName(clips[0].name)));
+    mid.appendChild(el("div", "s", plural(clips.length, "clip", "clips") + " · " + plural(groupBy(clips, visitKey).length, "visit", "visits") + " · " + fmtDur(g.dur)));
+    c.appendChild(th); c.appendChild(mid); c.appendChild(shareButton(clips, open)); c.appendChild(el("span", "chev", "›"));
+    return c;
+  }
+  function clipRow(c) {
+    var b = el("button", "row"); b.type = "button"; b.setAttribute("data-id", c.id);
+    var t = el("span", null, c.alert || "(no alert)");
+    t.appendChild(el("span", "who", whoText(c)));
+    b.appendChild(thumbEl(c)); b.appendChild(el("span", "tm", fmtTime(c.at))); b.appendChild(t); b.appendChild(el("span", "d", c.dur + " s"));
+    b.addEventListener("click", function () { selectClip(c); });
+    return b;
+  }
+
   function renderClips() {
     clipsList().then(function (list) {
       clipRows = list;
+      indexFaces();
       refreshClipsSummary();
-      while (clipList.firstChild) clipList.removeChild(clipList.firstChild);
-      if (!list.length) {
-        var empty = document.createElement("div"); empty.className = "empty";
-        empty.textContent = recMode() === "off" ? "No clips yet. Turn on Record clips in settings." : "No clips yet. They appear here after each system alert.";
-        clipList.appendChild(empty);
-        selectClip(null);
-        return;
-      }
-      list.forEach(function (c) {
-        var b = document.createElement("button"); b.type = "button"; b.className = "row" + (curClip && curClip.id === c.id ? " cur" : "");
-        var th = document.createElement("span"); th.className = "th"; if (c.thumb) th.style.backgroundImage = "url(" + c.thumb + ")";
-        var tm = document.createElement("span"); tm.className = "tm"; tm.textContent = fmtTime(c.at);
-        var t = document.createElement("span"); t.textContent = c.alert || "(no alert)";
-        var d = document.createElement("span"); d.className = "d"; d.textContent = c.dur + " s";
-        b.appendChild(th); b.appendChild(tm); b.appendChild(t); b.appendChild(d);
-        b.addEventListener("click", function () { selectClip(c); });
-        clipList.appendChild(b);
-      });
-      if (!curClip || !list.some(function (c) { return c.id === curClip.id; })) selectClip(list[0]);
+      refreshNameList();
+      showView();
     }).catch(function (e) {
-      while (clipList.firstChild) clipList.removeChild(clipList.firstChild);
-      var err = document.createElement("div"); err.className = "empty"; err.textContent = "Clips storage unavailable: " + (e && e.message || e);
-      clipList.appendChild(err);
+      clipRows = [];
+      var msg = "Clips storage unavailable: " + (e && e.message || e);
+      [clipList, groupList].forEach(function (box) { clearEl(box); box.appendChild(el("div", "empty", msg)); });
     });
   }
+  function groupRows() {
+    var g = clipsGroup;
+    if (!g) return [];
+    return clipRows.filter(function (c) { return g.kind === "group" ? groupKey(c) === g.key : byName(c) === g.key; });
+  }
+  function showView(atLeast) {
+    if (clipsView === "group" && !groupRows().length) { clipsView = clipsGroup.from; clipsGroup = null; }
+    var inGroup = clipsView === "group", listView = clipsView === "groups" || clipsView === "names";
+    clipsEl.classList.toggle("ingroup", inGroup);
+    groupHead.hidden = !inGroup;
+    playerView.hidden = listView;
+    groupList.hidden = !listView;
+    if (listView) { try { clipPlayer.pause(); } catch (e) {} selectClip(null); }
+    if (clipsView === "groups") renderGroups(atLeast);
+    else if (clipsView === "names") renderNames(atLeast);
+    else if (inGroup) { renderGroupHead(); renderPlayerList(groupRows()); }
+    else renderPlayerList(clipRows);
+    updateTabs();
+    updateFoot();
+  }
+  function renderGroups(atLeast) {
+    clearEl(groupList);
+    var groups = groupBy(clipRows, groupKey);
+    if (!groups.length) { groupList.appendChild(el("div", "empty", emptyText())); return; }
+    groupList.appendChild(el("div", "hint", clipRows.some(function (c) { return c.face > 0; })
+      ? "Clips are grouped by similar faces, matched on this iPad while the app is open. Costumes, masks and lighting will sometimes split one person in two: give both groups the same name and they join up under Names. A clip in the wrong group: open it and tap Not them."
+      : "Each group is one visit: every clip of one face box, for as long as it stays on screen. Turn on Group clips by similar faces in settings to keep people together across visits."));
+    pageInto(groupList, groups, groupCard, atLeast);
+  }
+  function renderNames(atLeast) {
+    clearEl(groupList);
+    var people = groupBy(clipRows, byName).sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+    if (!people.length) {
+      groupList.appendChild(el("div", "empty", clipRows.length ? "No names yet. Type a name on a group or a clip, and every clip with that name collects here, ready to share in one go." : emptyText()));
+      return;
+    }
+    pageInto(groupList, people, personCard, atLeast);
+  }
+  function renderGroupHead() {
+    var rows = groupRows(), dur = 0, size = 0;
+    rows.forEach(function (c) { dur += c.dur || 0; size += c.size || 0; });
+    var sn = sharedName(rows);
+    groupLabel.textContent = clipsGroup.kind === "name" ? "Name" : (inFaceGroup(rows[0]) ? "Similar faces " : "Visit ") + visitWhen(rows);
+    groupName.value = sn.name; groupName.placeholder = sn.hint;
+    groupSum.textContent = plural(rows.length, "clip", "clips") + " · " + fmtDur(dur) + " · " + fmtBytes(size);
+  }
+  function renderPlayerList(rows) {
+    viewRows = rows;
+    clearEl(clipList);
+    if (!rows.length) { clipList.appendChild(el("div", "empty", emptyText())); selectClip(null); return; }
+    var keep = curClip ? rows.filter(function (c) { return c.id === curClip.id; })[0] : null;
+    pageInto(clipList, rows, clipRow, keep ? rows.indexOf(keep) + 1 : 0);
+    selectClip(keep || rows[0]);
+  }
+  function openGroup(g) {
+    commitEdits();
+    if (clipsView === "groups" || clipsView === "names")
+      listMemo = { view: clipsView, scroll: clipsBody.scrollTop, shown: +(groupList.getAttribute("data-shown") || 0) };
+    clipsGroup = g; clipsView = "group"; curClip = null; shareOffset = 0;
+    showView();
+    clipsBody.scrollTop = 0;
+  }
+  $("groupBack").addEventListener("click", function () {
+    commitEdits();
+    var from = clipsGroup ? clipsGroup.from : "groups", memo = listMemo && listMemo.view === from ? listMemo : null;
+    clipsView = from; clipsGroup = null; shareOffset = 0;
+    showView(memo ? memo.shown : 0);
+    clipsBody.scrollTop = memo ? memo.scroll : 0;
+  });
+  clipsTabs.addEventListener("click", function (e) {
+    var v = e.target.getAttribute && e.target.getAttribute("data-view");
+    if (!v) return;
+    commitEdits();
+    clipsView = v; clipsGroup = null; shareOffset = 0;
+    showView();
+    clipsBody.scrollTop = 0;
+  });
+  function updateTabs() {
+    var counts = { groups: groupBy(clipRows, groupKey).length, names: groupBy(clipRows, byName).length, all: clipRows.length };
+    var labels = { groups: "Groups", names: "Names", all: "All clips" };
+    Array.prototype.forEach.call(clipsTabs.children, function (b) {
+      var v = b.getAttribute("data-view");
+      b.setAttribute("aria-selected", String(v === clipsView));
+      b.textContent = labels[v] + " (" + counts[v] + ")";
+    });
+  }
+
   function selectClip(c) {
     curClip = c;
-    if (curUrl) { try { URL.revokeObjectURL(curUrl); } catch (e) {} curUrl = null; }
-    Array.prototype.forEach.call(clipList.children, function (row, i) { if (row.classList) row.classList.toggle("cur", !!c && clipRows[i] && clipRows[i].id === c.id); });
+    Array.prototype.forEach.call(clipList.querySelectorAll(".row"), function (row) { row.classList.toggle("cur", !!c && row.getAttribute("data-id") === String(c.id)); });
+    clipNameIn.disabled = clipShareBtn.disabled = clipDeleteBtn.disabled = !c;
+    clipNameIn.value = c ? cleanName(c.name) : "";
+    clipUngroupBtn.hidden = !(c && clipsView === "group" && clipsGroup.kind === "group" && inFaceGroup(c));
+    // Same clip again (after a rename, say): leave the player and whatever it is doing alone.
+    if (c && curUrl && curUrlId === c.id) { setClipLabels(c); return; }
+    if (curUrl) { try { URL.revokeObjectURL(curUrl); } catch (e) {} curUrl = null; curUrlId = null; }
     if (!c) { clipTitle.textContent = "No clip selected"; clipSub.textContent = ""; clipPlayer.removeAttribute("src"); try { clipPlayer.load(); } catch (e) {} return; }
-    var idx = clipRows.indexOf(c) + 1;
-    clipTitle.textContent = c.alert || "(no alert)";
-    clipSub.textContent = "Clip " + idx + " of " + clipRows.length + " · " + fmtClock(c.at) + " · " + c.dur + " s · " + fmtBytes(c.size || 0);
+    setClipLabels(c);
     clipBlob(c.id).then(function (blob) {
       if (curClip !== c || !blob) return;
-      curUrl = URL.createObjectURL(blob);
+      curUrl = URL.createObjectURL(blob); curUrlId = c.id;
       clipPlayer.src = curUrl;
     }).catch(function () {});
   }
+  function setClipLabels(c) {
+    clipTitle.textContent = c.alert || "(no alert)";
+    clipSub.textContent = "Clip " + (viewRows.indexOf(c) + 1) + " of " + viewRows.length + " · " + fmtClock(c.at) + " · " + c.dur + " s · " + fmtBytes(c.size || 0);
+  }
+  function enterBlurs(inp) { inp.addEventListener("keydown", function (e) { if (e.key === "Enter") inp.blur(); }); }
+  enterBlurs(clipNameIn); enterBlurs(groupName);
+  clipNameIn.addEventListener("change", function () {
+    if (!curClip) return;
+    setName([curClip], clipNameIn.value);
+    clipNameIn.value = cleanName(curClip.name);
+    afterRename();
+  });
+  groupName.addEventListener("change", function () {
+    var rows = groupRows(), name = cleanName(groupName.value);
+    if (clipsView !== "group" || !rows.length) return;
+    if (clipsGroup.kind === "name") {
+      if (!name && !confirm("Take the name off these " + plural(rows.length, "clip", "clips") + "?")) { groupName.value = cleanName(rows[0].name); return; }
+      setName(rows, name);
+      if (!name) { clipsView = clipsGroup.from; clipsGroup = null; showView(); return; }
+      clipsGroup.key = nameKey(name);   // renaming to a name already in use merges the two
+    } else setName(rows, name);
+    afterRename();
+  });
+  // After a rename in the player view, labels update in place: rebuilding the list here would
+  // swallow the tap whose blur caused the change. A clip leaving or joining the name shown is the
+  // exception, and then the list is redrawn.
+  function afterRename() {
+    if (clipsView === "group" && groupRows().length !== viewRows.length) { showView(); return; }
+    var byId = {};
+    viewRows.forEach(function (c) { byId[c.id] = c; });
+    Array.prototype.forEach.call(clipList.querySelectorAll(".row"), function (row) {
+      var c = byId[row.getAttribute("data-id")];
+      if (c) row.querySelector(".who").textContent = whoText(c);
+    });
+    if (clipsView === "group") renderGroupHead();
+    updateFoot();
+  }
+
   function clipFile(c, blob) {
     var ext = /webm/.test(c.mime || blob.type) ? "webm" : "mp4";
-    var d = new Date(c.at);
+    var d = new Date(c.at), safe = function (s) { return s.replace(/[\\\/:*?"<>|]+/g, "-"); };
     var name = "FaceTag " + d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " + pad2(d.getHours()) + "." + pad2(d.getMinutes()) + "." + pad2(d.getSeconds()) +
-      (c.alert ? " " + c.alert.replace(/[\\\/:*?"<>|]+/g, "-") : "") + "." + ext;
+      (c.name ? " " + safe(cleanName(c.name)) : "") + (c.alert ? " " + safe(c.alert) : "") + "." + ext;
     try { return new File([blob], name, { type: blob.type || c.mime }); } catch (e) { blob.name = name; return blob; }
   }
   // The iOS share sheet does AirDrop and Save Video; browsers without it get a download instead.
@@ -6241,38 +6727,59 @@ return a / b;`,aie=`
     });
     return Promise.resolve();
   }
-  $("clipShare").addEventListener("click", function () {
-    if (!curClip) return;
-    var c = curClip;
-    clipBlob(c.id).then(function (blob) { if (blob) return shareFiles([clipFile(c, blob)], c.alert || "Face Tag clip"); });
+  function shareClips(clips, title) {
+    return Promise.all(clips.map(function (c) { return clipBlob(c.id).then(function (b) { return b ? clipFile(c, b) : null; }); }))
+      .then(function (files) { files = files.filter(Boolean); if (files.length) return shareFiles(files, title); });
+  }
+  function shareTitle(clips) { var n = sharedName(clips).name; return n ? "Face Tag clips for " + n : "Face Tag clips"; }
+  clipShareBtn.addEventListener("click", function () {
+    if (curClip) shareClips([curClip], curClip.alert || "Face Tag clip");
   });
-  $("clipDelete").addEventListener("click", function () {
+  // A clip matched to the wrong person leaves the group and goes back to standing with its visit.
+  clipUngroupBtn.addEventListener("click", function () {
+    if (!curClip || !inFaceGroup(curClip)) return;
+    var c = curClip, i = viewRows.indexOf(c);
+    c.face = -1;
+    indexFaces();
+    curClip = viewRows[i + 1] || viewRows[i - 1] || null;
+    clipsPatch([c.id], function (m) { m.face = -1; }).catch(function () { renderClips(); });
+    showView();
+  });
+  clipDeleteBtn.addEventListener("click", function () {
     if (!curClip) return;
-    var c = curClip;
+    var c = curClip, i = viewRows.indexOf(c);
     if (!confirm("Delete this clip?")) return;
-    clipsDelete([c.id]).then(function () { curClip = null; renderClips(); });
+    clipsDelete([c.id]).then(function () { curClip = viewRows[i + 1] || viewRows[i - 1] || null; renderClips(); });
   });
-  $("clipsDeleteAll").addEventListener("click", function () {
-    if (!clipRows.length) return;
-    if (!confirm("Delete all " + clipRows.length + " clips from this iPad? This cannot be undone.")) return;
-    clipsDelete(clipRows.map(function (c) { return c.id; })).then(function () { curClip = null; renderClips(); });
+
+  // The footer acts on whatever is open: one visit or name, or everything.
+  function footRows() { return clipsView === "group" ? groupRows() : clipRows; }
+  function updateFoot() {
+    var rows = footRows(), n = rows.length, left = n - shareOffset, name = clipsView === "group" ? sharedName(rows).name : "";
+    shareAllBtn.disabled = deleteAllBtn.disabled = !n;
+    if (shareOffset > 0 && left > 0) shareAllBtn.textContent = "Share / Save next " + Math.min(left, SHARE_BATCH) + " (" + left + " left)…";
+    else if (clipsView === "group") shareAllBtn.textContent = "Share all " + n + (name ? " with " + name : "") + "…";
+    else shareAllBtn.textContent = "Share / Save all" + (n ? " " + n : "") + "…";
+    deleteAllBtn.textContent = clipsView === "group" ? "Delete these " + n : "Delete all";
+  }
+  deleteAllBtn.addEventListener("click", function () {
+    var rows = footRows();
+    if (!rows.length) return;
+    var what = clipsView === "group" ? "these " + plural(rows.length, "clip", "clips") : "all " + rows.length + " clips";
+    if (!confirm("Delete " + what + " from this iPad? This cannot be undone.")) return;
+    clipsDelete(rows.map(function (c) { return c.id; })).then(function () { curClip = null; renderClips(); });
   });
   // The share sheet copes with a few dozen files at once, not hundreds: newest batch first,
   // and the button tells you how many are left.
-  var SHARE_BATCH = 30, shareOffset = 0;
-  $("clipsShareAll").addEventListener("click", function () {
-    if (!clipRows.length) return;
-    var batch = clipRows.slice(shareOffset, shareOffset + SHARE_BATCH);
-    if (!batch.length) { shareOffset = 0; batch = clipRows.slice(0, SHARE_BATCH); }
-    Promise.all(batch.map(function (c) { return clipBlob(c.id).then(function (b) { return b ? clipFile(c, b) : null; }); }))
-      .then(function (files) {
-        files = files.filter(Boolean);
-        shareOffset += batch.length;
-        var left = clipRows.length - shareOffset;
-        $("clipsShareAll").textContent = left > 0 ? "Share / Save next " + Math.min(left, SHARE_BATCH) + " (" + left + " left)…" : "Share / Save all…";
-        if (left <= 0) shareOffset = 0;
-        return shareFiles(files, "Face Tag clips");
-      });
+  shareAllBtn.addEventListener("click", function () {
+    var rows = footRows();
+    if (!rows.length) return;
+    if (shareOffset >= rows.length) shareOffset = 0;
+    var batch = rows.slice(shareOffset, shareOffset + SHARE_BATCH);
+    shareOffset += batch.length;
+    if (shareOffset >= rows.length) shareOffset = 0;
+    updateFoot();
+    shareClips(batch, shareTitle(rows));
   });
   applyRecMode();
 
