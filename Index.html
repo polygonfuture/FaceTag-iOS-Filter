@@ -232,7 +232,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 24</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 25</div>
 </div>
 
 <div id="clips" hidden>
@@ -5727,10 +5727,12 @@ return a / b;`,aie=`
       } catch (e) { sfxEl = null; }
       return;
     }
-    if (sfxCtx) { if (sfxCtx.state === "suspended") sfxCtx.resume(); return; }
+    if (sfxCtx) { if (ctxStopped()) sfxCtx.resume(); return; }
     var AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     try { sfxCtx = new AC(); } catch (e) { return; }
+    // Comes back by itself after the interruption the microphone starting causes.
+    sfxCtx.onstatechange = function () { if (ctxStopped()) setTimeout(resumeSfx, 300); };
     // Starting a silent one-sample buffer inside the gesture is what actually lifts the block.
     try {
       var s = sfxCtx.createBufferSource();
@@ -5738,7 +5740,7 @@ return a / b;`,aie=`
       s.connect(sfxCtx.destination);
       s.start(0);
     } catch (e) {}
-    if (sfxCtx.state === "suspended") sfxCtx.resume();
+    if (ctxStopped()) sfxCtx.resume();
     loadSfx(0);
   }
 
@@ -5760,15 +5762,19 @@ return a / b;`,aie=`
 
   // Shuffle-bag over whatever has finished loading, same as tags and alert texts: every sound
   // plays once before any repeats, and a round never opens with the sound that closed the last.
-  // iOS reconfigures the audio session when a camera stream starts, and suspends the context
-  // outright when the page goes to the background. Either one leaves it needing a nudge, which
-  // is allowed without a fresh gesture once the context has been unlocked one time.
+  // iOS reconfigures the audio session when the camera or microphone starts, and suspends the
+  // context outright when the page goes to the background. Safari reports the first as
+  // "interrupted", not "suspended", so anything but running counts. A nudge is allowed without a
+  // fresh gesture once the context has been unlocked one time, and any tap on the screen is
+  // another chance if iOS refused it.
+  function ctxStopped() { return !!sfxCtx && sfxCtx.state !== "running" && sfxCtx.state !== "closed"; }
   function resumeSfx() {
-    if (sfxCtx && sfxCtx.state === "suspended") { try { sfxCtx.resume(); } catch (e) {} }
+    if (ctxStopped()) { try { var p = sfxCtx.resume(); if (p && p.catch) p.catch(function () {}); } catch (e) {} }
   }
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) resumeSfx();
   });
+  document.addEventListener("pointerup", resumeSfx, true);
 
   // In element mode nothing is decoded ahead of time, so every clip is always a candidate.
   function sfxReady() {
@@ -5805,7 +5811,7 @@ return a / b;`,aie=`
     if (!sfxCtx) return;
     var buf = sfxBuffers[name];
     if (!buf) return;
-    if (sfxCtx.state === "suspended") sfxCtx.resume();
+    if (ctxStopped()) sfxCtx.resume();
     try {
       var src = sfxCtx.createBufferSource(), gain = sfxCtx.createGain();
       src.buffer = buf;
@@ -5936,7 +5942,10 @@ return a / b;`,aie=`
     if (micPromise) return micPromise;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve(null);
     micPending = true;
-    micPromise = navigator.mediaDevices.getUserMedia({ audio: true })
+    // Plain recording, no call processing: with echo cancellation on, iOS switches into its voice
+    // call audio mode, which turns everything the page plays right down and hands the volume
+    // buttons to call volume. It also suits a party clip better: the room as it sounds.
+    micPromise = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
       .then(function (s) { micStream = s; micPending = false; return s; })
       .catch(function (e) { micPromise = null; micPending = false; recNote("MIC OFF"); return null; });
     return micPromise;
@@ -6046,9 +6055,7 @@ return a / b;`,aie=`
       if (performance.now() - t.seen > 300) return Promise.resolve();   // not in view this moment
       return describeTrack(t).then(function (d) {
         if (!d) return;
-        if (!sess.faceSum) { sess.faceSum = new Float32Array(d.length); sess.faceN = 0; }
-        for (var i = 0; i < d.length; i++) sess.faceSum[i] += d[i];
-        sess.faceN++;
+        (sess.faces = sess.faces || []).push(d);
       });
     }
     var work = sample()
@@ -6226,9 +6233,16 @@ return a / b;`,aie=`
                           visit: sess.visit || 0, faceThumb: sess.faceThumb || null }, blob);
       })
       .then(function (id) {
-        if (!sess.faceN) return;
-        var d = new Float32Array(sess.faceSum.length);
-        for (var i = 0; i < d.length; i++) d[i] = sess.faceSum[i] / sess.faceN;
+        var f = sess.faces;
+        if (!f || !f.length) return;
+        // Average the two samples only if they are the same person: the tracker can hand a box
+        // from one face to another when people cross, and a blend of two people matches neither.
+        // Otherwise keep the first, taken as the alert fired, which is who the clip is about.
+        var d = f[0];
+        if (f.length > 1 && meanDist(f[0], 1, f[1], 1) < FACE_MATCH) {
+          d = new Float32Array(f[0].length);
+          for (var i = 0; i < d.length; i++) d[i] = (f[0][i] + f[1][i]) / 2;
+        }
         return facesPut(id, d, "live");
       })
       .then(function () {
