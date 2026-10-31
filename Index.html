@@ -232,7 +232,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 25</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 26</div>
 </div>
 
 <div id="clips" hidden>
@@ -6116,51 +6116,78 @@ return a / b;`,aie=`
     try { rctx.drawImage(canvas, 0, 0, W, H); } catch (e) {}
 
     var sr = stageEl.getBoundingClientRect();
-    function rel(el) { var r = el.getBoundingClientRect(); return { x: (r.left - sr.left) * k, y: (r.top - sr.top) * k, w: r.width * k, h: r.height * k }; }
 
+    // The logo, with its current opacity and tone filter (which fades between light and dark).
     if (!logoEl.hidden && logoEl.naturalWidth) {
-      var lr = rel(logoEl);
+      var lb = logoEl.getBoundingClientRect(), lcs = getComputedStyle(logoEl);
       rctx.save();
-      rctx.globalAlpha = 0.5;
-      if (recFilterOk) rctx.filter = logoEl.classList.contains("dark") ? "brightness(0)" : "brightness(0) invert(1)";
-      try { rctx.drawImage(logoEl, lr.x, lr.y, lr.w, lr.h); } catch (e) {}
+      rctx.globalAlpha = parseFloat(lcs.opacity);
+      if (recFilterOk) rctx.filter = lcs.filter && lcs.filter !== "none" ? lcs.filter : "none";
+      try { rctx.drawImage(logoEl, (lb.left - sr.left) * k, (lb.top - sr.top) * k, lb.width * k, lb.height * k); } catch (e) {}
       rctx.restore();
     }
 
-    rctx.textBaseline = "middle";
-    [recEl, clockEl, trackEl, suspectsEl].forEach(function (el) {
-      if (el.hidden) return;
-      var r = rel(el);
-      rctx.font = "bold " + (22 * k) + "px Menlo, 'Courier New', monospace";
-      // The on-screen REC box also holds the wearer's CLIP / ARMED suffix, which the clip leaves
-      // out, so its box is sized to the plain callsign instead.
-      if (el === recEl) r.w = rctx.measureText("● REC  CONDOR-07").width + 20 * k;
-      roundRect(rctx, r.x, r.y, r.w, r.h, 4 * k);
-      rctx.fillStyle = "rgba(0,0,0,.6)"; rctx.fill();
-      var tx = r.x + 10 * k, ty = r.y + r.h / 2;
-      if (el === recEl) {
-        // Red dot then the plain callsign: the ARMED / CLIP suffix is for the wearer, not the clip.
-        rctx.fillStyle = "#e0161b"; rctx.fillText("●", tx, ty);
-        tx += rctx.measureText("● ").width;
-        rctx.fillStyle = "#fff"; rctx.fillText("REC  CONDOR-07", tx, ty);
-      } else {
-        rctx.fillStyle = "#fff"; rctx.fillText(el.textContent, tx, ty);
-      }
-    });
-
-    if (!alertEl.hidden) {
-      var ar = rel(alertEl);
-      roundRect(rctx, ar.x, ar.y, ar.w, ar.h, 4 * k);
-      rctx.fillStyle = "#e0161b"; rctx.fill();
-      rctx.textBaseline = "top";
-      rctx.font = "bold " + (14 * k) + "px Menlo, 'Courier New', monospace";
-      rctx.fillStyle = "rgba(255,255,255,.85)";
-      rctx.fillText("S Y S T E M  A L E R T", ar.x + 24 * k, ar.y + 12 * k);
-      rctx.font = "bold " + (30 * k) + "px Menlo, 'Courier New', monospace";
-      rctx.fillStyle = "#fff";
-      rctx.fillText(alertTextEl.textContent, ar.x + 24 * k, ar.y + (12 + 14 * 1.2 + 4) * k);
-      rctx.textBaseline = "middle";
+    // Then every text overlay, copied from the page as it is at this instant: position, colours,
+    // fonts, letter spacing, opacity, shadow, and visibility, so blinks (the REC dot, the alert
+    // flashing in) and the REC suffix land in the clip exactly as they appear on screen.
+    [recEl, clockEl, trackEl, suspectsEl, alertEl].forEach(function (el) { if (!el.hidden) drawOverlay(el, k, sr); });
+  }
+  // Opacity multiplies down the tree, as the browser composites it.
+  function cssAlpha(el) {
+    var a = 1;
+    for (var e = el; e && e !== stageEl; e = e.parentElement) { var o = parseFloat(getComputedStyle(e).opacity); if (!isNaN(o)) a *= o; }
+    return a;
+  }
+  var SHADOW_RE = /(rgba?\([^)]*\)|#[0-9a-f]+)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px/i;
+  var textRange = document.createRange();
+  function drawOverlay(el, k, sr) {
+    var cs = getComputedStyle(el);
+    if (cs.display === "none") return;
+    if (cs.visibility !== "hidden") {
+      var b = el.getBoundingClientRect(), x = (b.left - sr.left) * k, y = (b.top - sr.top) * k;
+      rctx.save();
+      rctx.globalAlpha = cssAlpha(el);
+      var sh = cs.boxShadow && cs.boxShadow !== "none" ? SHADOW_RE.exec(cs.boxShadow) : null;
+      if (sh) { rctx.shadowColor = sh[1]; rctx.shadowOffsetX = sh[2] * k; rctx.shadowOffsetY = sh[3] * k; rctx.shadowBlur = sh[4] * k; }
+      roundRect(rctx, x, y, b.width * k, b.height * k, (parseFloat(cs.borderTopLeftRadius) || 0) * k);
+      rctx.fillStyle = cs.backgroundColor; rctx.fill();
+      rctx.restore();
     }
+    // Text is drawn per element: in CSS a child can be visible inside a hidden parent and vice versa.
+    (function walk(node) {
+      for (var n = node.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3) drawTextRun(n, k, sr);
+        else if (n.nodeType === 1 && !n.hidden) walk(n);
+      }
+    })(el);
+  }
+  function drawTextRun(node, k, sr) {
+    var p = node.parentElement, ps = getComputedStyle(p);
+    if (!node.data || ps.visibility === "hidden" || ps.display === "none") return;
+    textRange.selectNodeContents(node);
+    var b = textRange.getBoundingClientRect();
+    if (!b.width) return;
+    rctx.save();
+    rctx.globalAlpha = cssAlpha(p);
+    rctx.font = ps.fontStyle + " " + ps.fontWeight + " " + (parseFloat(ps.fontSize) * k) + "px " + ps.fontFamily;
+    rctx.fillStyle = ps.color;
+    rctx.textBaseline = "alphabetic";
+    // Sit the glyphs in the line box the way the browser does: the font's own ascent and descent,
+    // centred in the box the text occupies on screen.
+    var m = rctx.measureText(node.data), top = (b.top - sr.top) * k, h = b.height * k, x = (b.left - sr.left) * k, ty;
+    if (m.fontBoundingBoxAscent !== undefined) ty = top + (h - m.fontBoundingBoxAscent - m.fontBoundingBoxDescent) / 2 + m.fontBoundingBoxAscent;
+    else { rctx.textBaseline = "middle"; ty = top + h / 2; }
+    var ls = (parseFloat(ps.letterSpacing) || 0) * k;
+    if (!ls) rctx.fillText(node.data, x, ty);
+    else {
+      // Canvas letter spacing is not in every Safari, so the characters are spaced by hand.
+      for (var i = 0; i < node.data.length; i++) {
+        var ch = node.data.charAt(i);
+        rctx.fillText(ch, x, ty);
+        x += rctx.measureText(ch).width + ls;
+      }
+    }
+    rctx.restore();
   }
   var thumbCanvas = document.createElement("canvas");
   function makeThumb() {
