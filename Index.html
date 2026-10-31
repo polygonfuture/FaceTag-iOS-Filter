@@ -227,7 +227,7 @@
   <button id="start">Start</button>
   <div id="status"></div>
   <div id="perf" style="margin-top:6px;font-size:13px;color:#8c8">Detection speed: starts after Start</div>
-  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 22</div>
+  <div id="caminfo" style="margin-top:6px;font-size:13px;color:#888">Version 23</div>
 </div>
 
 <div id="clips" hidden>
@@ -5410,20 +5410,37 @@ return a / b;`,aie=`
     // Has to happen synchronously in the gesture, before any await/then, or iOS keeps audio
     // blocked. Skipped when the setting is off: turning it back on is its own gesture.
     if (alertSoundChk.checked) unlockSfx();
+    var recOn = recMode() !== "off";
     (modelReady ? Promise.resolve() : loadModel())
+      .then(function () {
+        // Face groups: download and warm up the models now, while this panel is still up, rather
+        // than freezing the camera view at the first alert.
+        if (!recOn || !faceChk.checked || faceNetsReady) return;
+        statusEl.textContent = "Preparing face groups (first time takes a little while)...";
+        return loadFaceNets();
+      })
       .then(function () {
         statusEl.textContent = "Starting camera...";
         return startCamera();
+      })
+      .then(function () {
+        // The microphone too, before the first clip: a recorder started without it stays silent.
+        if (!recOn) return;
+        statusEl.textContent = "Starting microphone...";
+        return ensureMic();
       })
       .then(function () {
         statusEl.textContent = "";
         panel.hidden = true;
         showLogo();
         showOverlays();
-        resumeSfx();  // the camera coming up may have suspended the context on iOS
+        resumeSfx();  // the camera and microphone coming up may have suspended the context on iOS
+        // running has to be set before the recording hooks run: they skip the mic and models otherwise.
+        var first = !running;
+        running = true;
         recOnCameraStarted();
         try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {}
-        if (!running) { running = true; detectLoop(); requestAnimationFrame(drawLoop); }
+        if (first) { detectLoop(); requestAnimationFrame(drawLoop); }
       })
       .catch(function (e) { statusEl.textContent = "Error: " + (e.message || e); })
       .then(function () { startBtn.disabled = false; });
@@ -5895,23 +5912,24 @@ return a / b;`,aie=`
   }
 
   // -- microphone, mixed with the alert sounds --
-  var micStream = null, micPromise = null, recDest = null, micNode = null;
+  var micStream = null, micPromise = null, micPending = false, recDest = null, micNode = null;
   function ensureMic() {
     if (micStream) return Promise.resolve(micStream);
     if (micPromise) return micPromise;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve(null);
+    micPending = true;
     micPromise = navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(function (s) { micStream = s; return s; })
-      .catch(function (e) { micPromise = null; recNote("MIC OFF"); return null; });
+      .then(function (s) { micStream = s; micPending = false; return s; })
+      .catch(function (e) { micPromise = null; micPending = false; recNote("MIC OFF"); return null; });
     return micPromise;
   }
-  // One audio track for the recorder. With an AudioContext around, the mic goes through it so
-  // the alert sounds can be mixed in (playAlertSound also feeds recDest); without one, mic only.
+  // One audio track for the recorder. With an AudioContext around, it is a mix: the mic (if
+  // allowed) plus the alert sounds, which playAlertSound also feeds into recDest. Without one, mic only.
   function recAudioTrack() {
-    if (sfxCtx && micStream) {
+    if (sfxCtx) {
       try {
         if (!recDest) recDest = sfxCtx.createMediaStreamDestination();
-        if (!micNode) { micNode = sfxCtx.createMediaStreamSource(micStream); micNode.connect(recDest); }
+        if (micStream && !micNode) { micNode = sfxCtx.createMediaStreamSource(micStream); micNode.connect(recDest); }
         return recDest.stream.getAudioTracks()[0] || null;
       } catch (e) {}
     }
@@ -5934,7 +5952,6 @@ return a / b;`,aie=`
   // a little stricter here, because one person split in two is fixed by naming both groups the
   // same, while two people mixed up means sending someone the wrong clips.
   var FACE_MATCH = 0.5;
-  var faceOpts = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 });
   faceChk.addEventListener("change", function () {
     try { localStorage.setItem(FACE_KEY, faceChk.checked ? "1" : "0"); } catch (e) {}
     if (!faceChk.checked) faceGroups = [];
@@ -5944,11 +5961,11 @@ return a / b;`,aie=`
   // page, the same way the sounds do, and only once the setting is on.
   function loadFaceNets() {
     if (faceNetsPromise) return faceNetsPromise;
-    var blank = document.createElement("canvas"); blank.width = blank.height = 150;
     faceNetsPromise = Promise.all([faceapi.nets.faceLandmark68TinyNet.loadFromUri("./models"), faceapi.nets.faceRecognitionNet.loadFromUri("./models")])
-      // One pass over a blank image compiles the GPU shaders now, rather than stalling the first alert.
-      .then(function () { return faceapi.nets.faceLandmark68TinyNet.detectLandmarks(blank); })
-      .then(function () { return faceapi.nets.faceRecognitionNet.computeFaceDescriptor(blank); })
+      // The exact same steps as a real match, on a blank crop: the GPU compiles its code for these
+      // shapes now (seconds on the iPad), and no real match ever needs a new shape after this.
+      .then(function () { clearCrop(); return describeCrop(); })
+      .then(function () { clearCrop(); return describeCrop(); })
       .then(function () { faceNetsReady = true; })
       .catch(function () { faceNetsPromise = null; recNote("FACE GROUPS OFF"); });
     return faceNetsPromise;
@@ -5977,17 +5994,33 @@ return a / b;`,aie=`
       return faceThumbCanvas.toDataURL("image/jpeg", 0.75);
     } catch (e) { try { c.restore(); } catch (e2) {} return null; }
   }
-  // The fingerprint of one tracked face, from a crop around its box so nobody else in frame gets
-  // in. Taken straight from the camera: unmirrored, full colour, no overlays.
-  var faceCrop = document.createElement("canvas");
+  // The fingerprint of one tracked face. Same steps as face-api's own pipeline (landmarks, then
+  // dlib-style alignment, then the recognition model), started from the tracker's box rather than
+  // a second detection. Every canvas here has a fixed size: the GPU compiles code per tensor shape,
+  // and a crop that changed size with each face stalled the app for seconds at every new size.
+  var FACE_CROP = 160, FACE_ALIGNED = 150;
+  var faceCrop = document.createElement("canvas"), faceAligned = document.createElement("canvas");
+  faceCrop.width = faceCrop.height = FACE_CROP; faceAligned.width = faceAligned.height = FACE_ALIGNED;
+  function clearCrop() { var c = faceCrop.getContext("2d"); c.fillStyle = "#000"; c.fillRect(0, 0, FACE_CROP, FACE_CROP); }
+  function describeCrop() {
+    return faceapi.nets.faceLandmark68TinyNet.detectLandmarks(faceCrop).then(function (lm) {
+      var b = lm.align(null, { useDlibAlignment: true }), a = faceAligned.getContext("2d");
+      // Clamp to the crop: older Safari draws nothing for a source rectangle that spills over.
+      var kx = FACE_ALIGNED / Math.max(1, b.width), ky = FACE_ALIGNED / Math.max(1, b.height);
+      var sx = Math.max(0, b.x), sy = Math.max(0, b.y), ex = Math.min(FACE_CROP, b.x + b.width), ey = Math.min(FACE_CROP, b.y + b.height);
+      a.fillStyle = "#000"; a.fillRect(0, 0, FACE_ALIGNED, FACE_ALIGNED);
+      if (ex - sx > 1 && ey - sy > 1) a.drawImage(faceCrop, sx, sy, ex - sx, ey - sy, (sx - b.x) * kx, (sy - b.y) * ky, (ex - sx) * kx, (ey - sy) * ky);
+      return faceapi.nets.faceRecognitionNet.computeFaceDescriptor(faceAligned);
+    });
+  }
+  // Taken straight from the camera: unmirrored, full colour, no overlays.
   function describeTrack(t) {
-    var r = boxAround(t, 0.6);
+    var r = boxAround(t, 0.25);
     if (!r) return Promise.resolve(null);
-    var k = Math.min(1, 320 / Math.max(r.w, r.h));
-    faceCrop.width = Math.round(r.w * k); faceCrop.height = Math.round(r.h * k);
-    faceCrop.getContext("2d").drawImage(video, r.x, r.y, r.w, r.h, 0, 0, faceCrop.width, faceCrop.height);
-    return faceapi.detectSingleFace(faceCrop, faceOpts).withFaceLandmarks(true).withFaceDescriptor()
-      .then(function (res) { return res ? res.descriptor : null; });
+    var k = FACE_CROP / Math.max(r.w, r.h);
+    clearCrop();
+    faceCrop.getContext("2d").drawImage(video, r.x, r.y, r.w, r.h, 0, 0, r.w * k, r.h * k);
+    return describeCrop();
   }
   function faceDist(d, g) {
     var s = 0;
@@ -6089,9 +6122,12 @@ return a / b;`,aie=`
     [recEl, clockEl, trackEl, suspectsEl].forEach(function (el) {
       if (el.hidden) return;
       var r = rel(el);
+      rctx.font = "bold " + (22 * k) + "px Menlo, 'Courier New', monospace";
+      // The on-screen REC box also holds the wearer's CLIP / ARMED suffix, which the clip leaves
+      // out, so its box is sized to the plain callsign instead.
+      if (el === recEl) r.w = rctx.measureText("● REC  CONDOR-07").width + 20 * k;
       roundRect(rctx, r.x, r.y, r.w, r.h, 4 * k);
       rctx.fillStyle = "rgba(0,0,0,.6)"; rctx.fill();
-      rctx.font = "bold " + (22 * k) + "px Menlo, 'Courier New', monospace";
       var tx = r.x + 10 * k, ty = r.y + r.h / 2;
       if (el === recEl) {
         // Red dot then the plain callsign: the ARMED / CLIP suffix is for the wearer, not the clip.
@@ -6139,6 +6175,8 @@ return a / b;`,aie=`
   }
   function recStart(reason) {
     if (recActive || !running || clipsOpen) return false;
+    // A recorder's tracks are fixed when it starts, so wait for the mic prompt to be answered.
+    if (micPending) return false;
     var mime = recMime();
     if (mime === null) { recNote("NO RECORDER"); return false; }
     recSize(canvas.clientWidth || 1, canvas.clientHeight || 1);
